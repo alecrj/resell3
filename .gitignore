@@ -1,7 +1,3 @@
-ResellAI.xcodeproj/xcshareddata/xcschemes/
-# Sensitive config
-Configuration.swift
-
 # Xcode specific
 .DS_Store
 *.xcworkspace
@@ -9,10 +5,17 @@ xcuserdata/
 DerivedData/
 build/
 *.xcuserstate
+*.xcscheme
+
+# Build files
+*.ipa
+*.dSYM.zip
+*.dSYM
 
 # SwiftPM
 Packages/
-.package.resolved
+.swiftpm/
+Package.resolved
 
 # CocoaPods (if using)
 Pods/
@@ -25,7 +28,26 @@ Carthage/
 fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots
+fastlane/test_output
+
+# Configuration files with sensitive data
+Configuration.swift
 
 # Misc
 *.swp
 *.lock
+.vscode/
+.idea/
+
+# Xcode project specific
+*.xcworkspace/xcshareddata/
+!*.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+# Generated files
+**/Generated/
+**/*.generated.swift
+
+# Temporary files
+*.tmp
+*.bak
+*~
