@@ -48,40 +48,11 @@ class RealAIAnalysisService: ObservableObject {
         }
     }
     
-    // MARK: - Prospecting Analysis
-    func analyzeForProspecting(images: [UIImage], category: String, completion: @escaping (ProspectAnalysis?) -> Void) {
-        guard !images.isEmpty else {
-            print("❌ No images provided for prospecting analysis")
-            DispatchQueue.main.async {
-                completion(nil)
-            }
-            return
-        }
-        
-        print("🎯 Starting prospecting analysis with \(images.count) images")
-        
-        openAIService.analyzeForProspecting(images: images, category: category) { result in
-            DispatchQueue.main.async {
-                completion(result)
-            }
-        }
-    }
-    
     // MARK: - Barcode Analysis
     func analyzeBarcode(_ barcode: String, images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         print("📱 Analyzing barcode: \(barcode)")
         
         openAIService.analyzeBarcode(barcode, images: images) { result in
-            DispatchQueue.main.async {
-                completion(result)
-            }
-        }
-    }
-    
-    func lookupBarcodeForProspecting(_ barcode: String, completion: @escaping (ProspectAnalysis?) -> Void) {
-        print("🎯 Looking up barcode for prospecting: \(barcode)")
-        
-        openAIService.lookupBarcodeForProspecting(barcode) { result in
             DispatchQueue.main.async {
                 completion(result)
             }
