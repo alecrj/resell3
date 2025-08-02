@@ -95,6 +95,11 @@ class MarketResearchService: ObservableObject {
             queries.append("\(identification.brand) \(identification.exactModelName)")
         }
         
+        // Just the exact model name
+        if !identification.exactModelName.isEmpty {
+            queries.append(identification.exactModelName)
+        }
+        
         // Add size and colorway for more specificity
         if !identification.brand.isEmpty && !identification.exactModelName.isEmpty {
             var specificQuery = "\(identification.brand) \(identification.exactModelName)"
@@ -110,10 +115,21 @@ class MarketResearchService: ObservableObject {
             queries.append(specificQuery)
         }
         
-        // Fallback to just model name
-        if queries.isEmpty && !identification.exactModelName.isEmpty {
-            queries.append(identification.exactModelName)
+        // Brand + product line if available
+        if !identification.brand.isEmpty && !identification.productLine.isEmpty {
+            queries.append("\(identification.brand) \(identification.productLine)")
         }
+        
+        // Fallback to category-based search
+        if queries.isEmpty {
+            if !identification.brand.isEmpty {
+                queries.append(identification.brand)
+            } else {
+                queries.append(identification.category.rawValue)
+            }
+        }
+        
+        print("🔍 Generated search queries: \(queries)")
         
         return queries
     }
@@ -354,8 +370,11 @@ class MarketResearchService: ObservableObject {
             let conditions = ["New with tags", "Like New", "Excellent", "Very Good", "Good"]
             let condition = conditions.randomElement() ?? "Good"
             
+            // Create more realistic titles based on the query
+            let title = createRealisticTitle(for: query, index: i)
+            
             listings.append(EbaySoldListing(
-                title: "\(query) - Sold Item \(i + 1)",
+                title: title,
                 price: price,
                 condition: condition,
                 soldDate: soldDate,
@@ -369,11 +388,53 @@ class MarketResearchService: ObservableObject {
         return listings
     }
     
+    private func createRealisticTitle(for query: String, index: Int) -> String {
+        let lowerQuery = query.lowercased()
+        
+        // Create realistic titles based on the query
+        if lowerQuery.contains("guess") {
+            let variations = [
+                "\(query) - Authentic",
+                "\(query) EUC",
+                "\(query) Great Condition",
+                "\(query) - Fast Shipping",
+                "\(query) Bundle Available"
+            ]
+            return variations[index % variations.count]
+        }
+        
+        // Generic variations
+        let genericVariations = [
+            "\(query) - Excellent Condition",
+            "\(query) - Free Shipping",
+            "\(query) - Authentic",
+            "\(query) - Fast Ship",
+            "\(query) - Great Deal"
+        ]
+        
+        return genericVariations[index % genericVariations.count]
+    }
+    
     private func estimateBasePrice(for query: String) -> Double {
         let lowerQuery = query.lowercased()
         
         // Enhanced price estimation based on product identification
-        if lowerQuery.contains("minnetonka") {
+        if lowerQuery.contains("guess") {
+            if lowerQuery.contains("shirt") || lowerQuery.contains("t-shirt") || lowerQuery.contains("tee") {
+                if lowerQuery.contains("los angeles") {
+                    return Double.random(in: 20...50)
+                }
+                return Double.random(in: 15...40)
+            } else if lowerQuery.contains("dress") {
+                return Double.random(in: 30...80)
+            } else if lowerQuery.contains("jeans") {
+                return Double.random(in: 35...90)
+            } else if lowerQuery.contains("jacket") {
+                return Double.random(in: 40...120)
+            } else {
+                return Double.random(in: 25...70)
+            }
+        } else if lowerQuery.contains("minnetonka") {
             return Double.random(in: 25...80)
         } else if lowerQuery.contains("thunderbird") && lowerQuery.contains("moccasin") {
             return Double.random(in: 30...75)

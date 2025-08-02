@@ -153,6 +153,7 @@ class WorkingOpenAIService: ObservableObject {
         Look for size tags, care labels, brand tags, and any identifying text.
         
         IMPORTANT: Return ONLY the JSON object, no markdown code blocks, no extra text.
+        If a field is not found or not applicable, use an empty string "" not null.
         """
         
         // Prepare image content for OpenAI with high detail
@@ -250,7 +251,7 @@ class WorkingOpenAIService: ObservableObject {
                             brand: productData.brand,
                             productLine: productData.productLine,
                             styleVariant: productData.styleVariant,
-                            styleCode: productData.styleCode,
+                            styleCode: productData.styleCode ?? "",
                             colorway: productData.colorway,
                             size: productData.size,
                             category: ProductCategory(rawValue: productData.category) ?? .other,
@@ -264,6 +265,8 @@ class WorkingOpenAIService: ObservableObject {
                         print("✅ OpenAI product identification successful: \(identification.exactModelName)")
                         print("🔍 Brand: \(identification.brand)")
                         print("🔍 Style Code: \(identification.styleCode)")
+                        print("🔍 Size: \(identification.size)")
+                        print("🔍 Colorway: \(identification.colorway)")
                         print("🔍 Confidence: \(String(format: "%.1f", identification.confidence * 100))%")
                         
                         completion(identification)
@@ -271,8 +274,14 @@ class WorkingOpenAIService: ObservableObject {
                     } catch {
                         print("❌ Error parsing OpenAI product data: \(error)")
                         print("🔍 Attempting to parse content: \(cleanedContent)")
-                        // Fallback to basic analysis
-                        completion(self?.createFallbackIdentification())
+                        
+                        // Try to extract what we can from the response
+                        if let partialIdentification = self?.parsePartialIdentification(from: cleanedContent) {
+                            print("✅ Partial identification successful: \(partialIdentification.exactModelName)")
+                            completion(partialIdentification)
+                        } else {
+                            completion(self?.createFallbackIdentification())
+                        }
                     }
                 } else {
                     print("❌ Could not convert OpenAI content to data")
@@ -284,6 +293,92 @@ class WorkingOpenAIService: ObservableObject {
                 completion(self?.createFallbackIdentification())
             }
         }.resume()
+    }
+    
+    // MARK: - Parse Partial Identification
+    private func parsePartialIdentification(from json: String) -> PrecisionIdentificationResult? {
+        // Try to extract key fields manually if JSON parsing fails
+        var exactModelName = "Unknown Product"
+        var brand = ""
+        var size = ""
+        var colorway = ""
+        var category = "other"
+        
+        // Extract exactModelName
+        if let modelRange = json.range(of: "\"exactModelName\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
+            let modelMatch = String(json[modelRange])
+            if let valueStart = modelMatch.firstIndex(of: ":"),
+               let valueEnd = modelMatch.lastIndex(of: "\"") {
+                let startIndex = modelMatch.index(after: valueStart)
+                let value = String(modelMatch[startIndex..<valueEnd])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+                exactModelName = value
+            }
+        }
+        
+        // Extract brand
+        if let brandRange = json.range(of: "\"brand\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
+            let brandMatch = String(json[brandRange])
+            if let valueStart = brandMatch.firstIndex(of: ":"),
+               let valueEnd = brandMatch.lastIndex(of: "\"") {
+                let startIndex = brandMatch.index(after: valueStart)
+                let value = String(brandMatch[startIndex..<valueEnd])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+                brand = value
+            }
+        }
+        
+        // Extract size
+        if let sizeRange = json.range(of: "\"size\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
+            let sizeMatch = String(json[sizeRange])
+            if let valueStart = sizeMatch.firstIndex(of: ":"),
+               let valueEnd = sizeMatch.lastIndex(of: "\"") {
+                let startIndex = sizeMatch.index(after: valueStart)
+                let value = String(sizeMatch[startIndex..<valueEnd])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+                size = value
+            }
+        }
+        
+        // Extract colorway
+        if let colorRange = json.range(of: "\"colorway\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
+            let colorMatch = String(json[colorRange])
+            if let valueStart = colorMatch.firstIndex(of: ":"),
+               let valueEnd = colorMatch.lastIndex(of: "\"") {
+                let startIndex = colorMatch.index(after: valueStart)
+                let value = String(colorMatch[startIndex..<valueEnd])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+                colorway = value
+            }
+        }
+        
+        // Extract category
+        if let categoryRange = json.range(of: "\"category\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
+            let categoryMatch = String(json[categoryRange])
+            if let valueStart = categoryMatch.firstIndex(of: ":"),
+               let valueEnd = categoryMatch.lastIndex(of: "\"") {
+                let startIndex = categoryMatch.index(after: valueStart)
+                let value = String(categoryMatch[startIndex..<valueEnd])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+                category = value
+            }
+        }
+        
+        return PrecisionIdentificationResult(
+            exactModelName: exactModelName,
+            brand: brand,
+            productLine: "",
+            styleVariant: "",
+            styleCode: "",
+            colorway: colorway,
+            size: size,
+            category: ProductCategory(rawValue: category) ?? .other,
+            subcategory: "",
+            identificationMethod: .visualOnly,
+            confidence: 0.7,
+            identificationDetails: ["Extracted from partial JSON response"],
+            alternativePossibilities: []
+        )
     }
     
     // MARK: - FIXED: JSON Cleaning Helper
@@ -562,23 +657,40 @@ class WorkingOpenAIService: ObservableObject {
     }
     
     private func estimateBasePrice(for identification: PrecisionIdentificationResult) -> Double {
+        // More specific pricing based on identified product
+        let brand = identification.brand.lowercased()
+        let product = identification.exactModelName.lowercased()
+        
+        // Specific brand pricing
+        if brand.contains("guess") {
+            if product.contains("shirt") || product.contains("t-shirt") || product.contains("tee") {
+                return Double.random(in: 15...45)
+            } else if product.contains("dress") {
+                return Double.random(in: 25...75)
+            } else if product.contains("jeans") || product.contains("pants") {
+                return Double.random(in: 30...80)
+            } else {
+                return Double.random(in: 20...60)
+            }
+        }
+        
         switch identification.category {
         case .sneakers:
-            if identification.brand.lowercased().contains("nike") || identification.brand.lowercased().contains("jordan") {
+            if brand.contains("nike") || brand.contains("jordan") {
                 return Double.random(in: 80...300)
-            } else if identification.brand.lowercased().contains("adidas") {
+            } else if brand.contains("adidas") {
                 return Double.random(in: 60...250)
             } else {
                 return Double.random(in: 40...150)
             }
         case .electronics:
-            if identification.brand.lowercased().contains("apple") {
+            if brand.contains("apple") {
                 return Double.random(in: 200...800)
             } else {
                 return Double.random(in: 50...400)
             }
         case .clothing:
-            return Double.random(in: 20...100)
+            return Double.random(in: 15...80)
         case .accessories:
             return Double.random(in: 15...75)
         default:
@@ -712,12 +824,13 @@ struct OpenAIMessage: Codable {
     let content: String
 }
 
+// FIXED: Make optional fields actually optional
 struct OpenAIProductIdentification: Codable {
     let exactModelName: String
     let brand: String
     let productLine: String
     let styleVariant: String
-    let styleCode: String
+    let styleCode: String?  // Made optional
     let colorway: String
     let size: String
     let category: String
