@@ -2,13 +2,13 @@
 //  AIService.swift
 //  ResellAI
 //
-//  Complete AI Service Integration with eBay Listing
+//  Focused AI Service for Business Operations
 //
 
 import SwiftUI
 import Foundation
 
-// MARK: - Complete AI Service with Proper Integration
+// MARK: - Focused AI Service for Business Operations
 class AIService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -47,40 +47,11 @@ class AIService: ObservableObject {
         }
     }
     
-    // MARK: - Prospecting Analysis
-    func analyzeForProspecting(images: [UIImage], category: String, completion: @escaping (ProspectAnalysis?) -> Void) {
-        guard !images.isEmpty else {
-            print("❌ No images provided for prospecting")
-            DispatchQueue.main.async {
-                completion(nil)
-            }
-            return
-        }
-        
-        print("🎯 Starting prospecting analysis with \(images.count) images")
-        
-        realService.analyzeForProspecting(images: images, category: category) { result in
-            DispatchQueue.main.async {
-                completion(result)
-            }
-        }
-    }
-    
     // MARK: - Barcode Analysis
     func analyzeBarcode(_ barcode: String, images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         print("📱 Analyzing barcode: \(barcode)")
         
         realService.analyzeBarcode(barcode, images: images) { result in
-            DispatchQueue.main.async {
-                completion(result)
-            }
-        }
-    }
-    
-    func lookupBarcodeForProspecting(_ barcode: String, completion: @escaping (ProspectAnalysis?) -> Void) {
-        print("🎯 Looking up barcode for prospecting: \(barcode)")
-        
-        realService.lookupBarcodeForProspecting(barcode) { result in
             DispatchQueue.main.async {
                 completion(result)
             }
@@ -392,7 +363,7 @@ class EbayListingService: ObservableObject {
     }
 }
 
-// MARK: - eBay Listing Performance (renamed to avoid conflicts)
+// MARK: - eBay Listing Performance
 struct EbayListingPerformance {
     let totalListings: Int
     let successfulListings: Int

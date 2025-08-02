@@ -1,8 +1,8 @@
-// MARK: - Fixed Models.swift with Data Corruption Handling
+// MARK: - Focused Business Models for ResellAI
 import SwiftUI
 import Foundation
 
-// MARK: - Core Models with eBay Condition System
+// MARK: - Core Business Models
 struct InventoryItem: Identifiable, Codable {
     let id = UUID()
     var itemNumber: Int
@@ -28,11 +28,11 @@ struct InventoryItem: Identifiable, Codable {
     var marketNotes: String?
     
     // Market analysis fields
-    var ebayCondition: EbayCondition? // NEW: eBay-specific condition
-    var marketConfidence: Double?     // NEW: Market data confidence
-    var soldListingsCount: Int?       // NEW: Number of sold items found
-    var priceRange: EbayPriceRange?   // NEW: Real market price range
-    var lastMarketUpdate: Date?       // NEW: When market data was last fetched
+    var ebayCondition: EbayCondition? // eBay-specific condition
+    var marketConfidence: Double?     // Market data confidence
+    var soldListingsCount: Int?       // Number of sold items found
+    var priceRange: EbayPriceRange?   // Real market price range
+    var lastMarketUpdate: Date?       // When market data was last fetched
     
     // AI analysis fields
     var aiConfidence: Double?
@@ -44,8 +44,8 @@ struct InventoryItem: Identifiable, Codable {
     // Product identification
     var barcode: String?
     var brand: String = ""
-    var exactModel: String = ""      // NEW: Exact model (e.g., "Air Force 1 Low '07")
-    var styleCode: String = ""       // NEW: Style/SKU code
+    var exactModel: String = ""      // Exact model (e.g., "Air Force 1 Low '07")
+    var styleCode: String = ""       // Style/SKU code
     var size: String = ""
     var colorway: String = ""
     var releaseYear: String = ""
@@ -141,7 +141,7 @@ struct InventoryItem: Identifiable, Codable {
     }
 }
 
-// MARK: - FIXED ItemStatus with Data Corruption Handling
+// MARK: - Item Status with Data Corruption Handling
 enum ItemStatus: String, CaseIterable, Codable {
     case sourced = "Sourced"
     case analyzed = "Analyzed"
@@ -165,7 +165,7 @@ enum ItemStatus: String, CaseIterable, Codable {
         }
     }
     
-    // MARK: - Handle corrupted data during decoding
+    // Handle corrupted data during decoding
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let statusString = try container.decode(String.self)
@@ -681,108 +681,6 @@ struct PriceRange {
         self.low = low
         self.high = high
         self.average = average
-    }
-}
-
-// MARK: - Prospecting Analysis
-struct ProspectAnalysis {
-    let identificationResult: PrecisionIdentificationResult
-    let marketAnalysis: MarketAnalysisResult
-    let maxBuyPrice: Double
-    let targetBuyPrice: Double
-    let breakEvenPrice: Double
-    let recommendation: ProspectDecision
-    let confidence: MarketConfidence
-    let images: [UIImage]
-    
-    // Computed properties for compatibility
-    var itemName: String { identificationResult.exactModelName }
-    var brand: String { identificationResult.brand }
-    var condition: String { marketAnalysis.conditionAssessment.detectedCondition.rawValue }
-    var estimatedSellPrice: Double { marketAnalysis.pricingRecommendation.recommendedPrice }
-    var potentialProfit: Double { estimatedSellPrice - maxBuyPrice - (estimatedSellPrice * 0.15) }
-    var expectedROI: Double { maxBuyPrice > 0 ? (potentialProfit / maxBuyPrice) * 100 : 0 }
-    var resalePotential: Int {
-        switch confidence.overall {
-        case 0.9...1.0: return 10
-        case 0.8...0.89: return 8
-        case 0.7...0.79: return 7
-        case 0.6...0.69: return 6
-        case 0.5...0.59: return 5
-        case 0.4...0.49: return 4
-        default: return 3
-        }
-    }
-    
-    var recentSales: [RecentSale] {
-        return marketAnalysis.marketData.soldListings.map { listing in
-            RecentSale(
-                title: listing.title,
-                price: listing.price,
-                condition: listing.condition,
-                date: listing.soldDate,
-                shipping: listing.shippingCost,
-                bestOffer: listing.bestOffer
-            )
-        }
-    }
-    
-    var demandLevel: String {
-        switch marketAnalysis.marketData.demandIndicators.searchVolume {
-        case .high: return "High"
-        case .medium: return "Medium"
-        case .low: return "Low"
-        }
-    }
-    
-    var riskLevel: String {
-        switch expectedROI {
-        case 100...: return "Low"
-        case 50..<100: return "Medium"
-        default: return "High"
-        }
-    }
-    
-    var sellTimeEstimate: String {
-        switch marketAnalysis.marketData.demandIndicators.timeToSell {
-        case .immediate: return "< 1 day"
-        case .fast: return "1-7 days"
-        case .normal: return "1-4 weeks"
-        case .slow: return "1-3 months"
-        case .difficult: return "3+ months"
-        }
-    }
-}
-
-enum ProspectDecision: String {
-    case strongBuy = "Strong Buy"
-    case buy = "Buy"
-    case maybeWorthIt = "Maybe Worth It"
-    case investigate = "Investigate Further"
-    case pass = "Pass"
-    
-    var emoji: String {
-        switch self {
-        case .strongBuy: return "🔥"
-        case .buy: return "✅"
-        case .maybeWorthIt: return "🤔"
-        case .investigate: return "🔍"
-        case .pass: return "❌"
-        }
-    }
-    
-    var title: String {
-        return rawValue
-    }
-    
-    var color: Color {
-        switch self {
-        case .strongBuy: return .green
-        case .buy: return .blue
-        case .maybeWorthIt: return .orange
-        case .investigate: return .yellow
-        case .pass: return .red
-        }
     }
 }
 

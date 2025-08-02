@@ -2,14 +2,14 @@
 //  OpenAIService.swift
 //  ResellAI
 //
-//  FIXED: Enhanced OpenAI Vision API Service with Google Lens Precision
+//  OpenAI Vision API Service for Business Analysis
 //
 
 import SwiftUI
 import Foundation
 import Vision
 
-// MARK: - Enhanced OpenAI Vision Service with Google Lens Precision
+// MARK: - OpenAI Vision Service for Business Analysis
 class WorkingOpenAIService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -20,7 +20,7 @@ class WorkingOpenAIService: ObservableObject {
     private let marketResearchService = MarketResearchService()
     
     init() {
-        print("🤖 Enhanced OpenAI Vision Service initialized")
+        print("🤖 OpenAI Vision Service initialized")
         validateConfiguration()
     }
     
@@ -32,7 +32,7 @@ class WorkingOpenAIService: ObservableObject {
         }
     }
     
-    // MARK: - Main Analysis Function with Enhanced Precision
+    // MARK: - Main Analysis Function
     func analyzeItem(images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             print("❌ No images provided for analysis")
@@ -49,14 +49,14 @@ class WorkingOpenAIService: ObservableObject {
         DispatchQueue.main.async {
             self.isAnalyzing = true
             self.currentStep = 0
-            self.analysisProgress = "Starting enhanced analysis..."
+            self.analysisProgress = "Starting analysis..."
         }
         
         // Step 1: Convert images to base64
         updateProgress(1, "Processing images...")
         let base64Images = convertImagesToBase64(images)
         
-        // Step 2: Enhanced product identification with Google Lens precision
+        // Step 2: Product identification with AI vision
         updateProgress(2, "Identifying product with AI vision...")
         identifyProductWithPrecision(base64Images: base64Images) { [weak self] identification in
             guard let self = self, let identification = identification else {
@@ -67,7 +67,7 @@ class WorkingOpenAIService: ObservableObject {
                 return
             }
             
-            // Step 3: Real eBay market research
+            // Step 3: eBay market research
             self.updateProgress(3, "Searching eBay for exact matches...")
             self.marketResearchService.researchProduct(
                 identification: identification,
@@ -106,7 +106,7 @@ class WorkingOpenAIService: ObservableObject {
         }
     }
     
-    // MARK: - FIXED: Enhanced Product Identification with Proper JSON Parsing
+    // MARK: - Product Identification with AI Vision
     private func identifyProductWithPrecision(base64Images: [String], completion: @escaping (PrecisionIdentificationResult?) -> Void) {
         guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
             print("❌ Invalid OpenAI URL")
@@ -119,9 +119,9 @@ class WorkingOpenAIService: ObservableObject {
         request.setValue("Bearer \(openAIAPIKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        // Enhanced system prompt for Google Lens-like precision
+        // System prompt for precision identification
         let systemPrompt = """
-        You are an expert product identifier with Google Lens-level precision. Analyze the image(s) and identify the EXACT product with maximum accuracy.
+        You are an expert product identifier with high precision. Analyze the image(s) and identify the EXACT product with maximum accuracy.
 
         Focus on:
         1. EXACT model name, style code, SKU, or product number
@@ -211,7 +211,7 @@ class WorkingOpenAIService: ObservableObject {
             return
         }
         
-        print("🤖 Making enhanced OpenAI Vision API call...")
+        print("🤖 Making OpenAI Vision API call...")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
@@ -237,7 +237,7 @@ class WorkingOpenAIService: ObservableObject {
                 
                 print("🤖 Raw OpenAI content: \(content)")
                 
-                // FIXED: Clean markdown formatting from response
+                // Clean markdown formatting from response
                 let cleanedContent = self?.cleanMarkdownFromJSON(content) ?? content
                 print("🧹 Cleaned content: \(cleanedContent)")
                 
@@ -381,7 +381,7 @@ class WorkingOpenAIService: ObservableObject {
         )
     }
     
-    // MARK: - FIXED: JSON Cleaning Helper
+    // MARK: - JSON Cleaning Helper
     private func cleanMarkdownFromJSON(_ content: String) -> String {
         var cleaned = content
         
@@ -402,56 +402,11 @@ class WorkingOpenAIService: ObservableObject {
         return cleaned
     }
     
-    // MARK: - Prospecting Analysis
-    func analyzeForProspecting(images: [UIImage], category: String, completion: @escaping (ProspectAnalysis?) -> Void) {
-        analyzeItem(images: images) { analysisResult in
-            guard let analysis = analysisResult else {
-                completion(nil)
-                return
-            }
-            
-            // Convert to prospect analysis with smart buy recommendations
-            let marketPrice = analysis.realisticPrice
-            let maxBuyPrice = marketPrice * 0.4 // 40% of market price for good ROI
-            let targetBuyPrice = marketPrice * 0.3 // 30% for great deal
-            let breakEvenPrice = marketPrice * 0.65 // Break even with fees
-            
-            let potentialProfit = marketPrice - maxBuyPrice - (marketPrice * 0.15)
-            let expectedROI = maxBuyPrice > 0 ? (potentialProfit / maxBuyPrice) * 100 : 0
-            
-            let recommendation: ProspectDecision
-            if expectedROI > 150 {
-                recommendation = .strongBuy
-            } else if expectedROI > 100 {
-                recommendation = .buy
-            } else if expectedROI > 50 {
-                recommendation = .maybeWorthIt
-            } else if expectedROI > 25 {
-                recommendation = .investigate
-            } else {
-                recommendation = .pass
-            }
-            
-            let prospectAnalysis = ProspectAnalysis(
-                identificationResult: analysis.identificationResult,
-                marketAnalysis: analysis.marketAnalysis,
-                maxBuyPrice: maxBuyPrice,
-                targetBuyPrice: targetBuyPrice,
-                breakEvenPrice: breakEvenPrice,
-                recommendation: recommendation,
-                confidence: analysis.confidence,
-                images: images
-            )
-            
-            completion(prospectAnalysis)
-        }
-    }
-    
     // MARK: - Barcode Analysis
     func analyzeBarcode(_ barcode: String, images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         updateProgress(1, "Looking up barcode...")
         
-        // Enhanced barcode analysis - use barcode as additional context
+        // Barcode analysis - use barcode as additional context
         if !images.isEmpty {
             analyzeItem(images: images) { result in
                 completion(result)
@@ -487,49 +442,6 @@ class WorkingOpenAIService: ObservableObject {
         marketResearchService.researchProduct(identification: identification, condition: .good) { marketAnalysis in
             let result = self.createFallbackAnalysis(identification: identification, images: [])
             completion(result)
-        }
-    }
-    
-    func lookupBarcodeForProspecting(_ barcode: String, completion: @escaping (ProspectAnalysis?) -> Void) {
-        lookupBarcodeProduct(barcode) { analysisResult in
-            guard let analysis = analysisResult else {
-                completion(nil)
-                return
-            }
-            
-            let marketPrice = analysis.realisticPrice
-            let maxBuyPrice = marketPrice * 0.4
-            let targetBuyPrice = marketPrice * 0.3
-            let breakEvenPrice = marketPrice * 0.65
-            
-            let potentialProfit = marketPrice - maxBuyPrice - (marketPrice * 0.15)
-            let expectedROI = maxBuyPrice > 0 ? (potentialProfit / maxBuyPrice) * 100 : 0
-            
-            let recommendation: ProspectDecision
-            if expectedROI > 150 {
-                recommendation = .strongBuy
-            } else if expectedROI > 100 {
-                recommendation = .buy
-            } else if expectedROI > 50 {
-                recommendation = .maybeWorthIt
-            } else if expectedROI > 25 {
-                recommendation = .investigate
-            } else {
-                recommendation = .pass
-            }
-            
-            let prospectAnalysis = ProspectAnalysis(
-                identificationResult: analysis.identificationResult,
-                marketAnalysis: analysis.marketAnalysis,
-                maxBuyPrice: maxBuyPrice,
-                targetBuyPrice: targetBuyPrice,
-                breakEvenPrice: breakEvenPrice,
-                recommendation: recommendation,
-                confidence: analysis.confidence,
-                images: []
-            )
-            
-            completion(prospectAnalysis)
         }
     }
     
@@ -657,7 +569,7 @@ class WorkingOpenAIService: ObservableObject {
     }
     
     private func estimateBasePrice(for identification: PrecisionIdentificationResult) -> Double {
-        // More specific pricing based on identified product
+        // Specific pricing based on identified product
         let brand = identification.brand.lowercased()
         let product = identification.exactModelName.lowercased()
         
@@ -824,13 +736,13 @@ struct OpenAIMessage: Codable {
     let content: String
 }
 
-// FIXED: Make optional fields actually optional
+// OpenAI Product Identification Response
 struct OpenAIProductIdentification: Codable {
     let exactModelName: String
     let brand: String
     let productLine: String
     let styleVariant: String
-    let styleCode: String?  // Made optional
+    let styleCode: String?  // Optional field
     let colorway: String
     let size: String
     let category: String
