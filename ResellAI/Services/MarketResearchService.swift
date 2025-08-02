@@ -1,14 +1,22 @@
 //
-//  APIServices.swift
+//  MarketResearchService.swift
 //  ResellAI
 //
-//  UPDATED: Complete API integrations with real eBay sold comp lookup
+//  Created by Alec on 8/2/25.
+//
+
+
+//
+//  MarketResearchService.swift
+//  ResellAI
+//
+//  Real Market Research with eBay Sold Comp Integration
 //
 
 import SwiftUI
 import Foundation
 
-// MARK: - Real Market Research Service with eBay Sold Comp Integration
+// MARK: - Real Market Research Service Using eBay Sold Comps
 class MarketResearchService: ObservableObject {
     @Published var isResearching = false
     @Published var researchProgress = "Ready"
@@ -83,7 +91,7 @@ class MarketResearchService: ObservableObject {
             var query3 = [identification.brand, identification.productLine]
             
             // Add size if available and relevant (mainly for shoes/clothing)
-            if !identification.size.isEmpty &&
+            if !identification.size.isEmpty && 
                (identification.category == .sneakers || identification.category == .clothing) {
                 query3.append("size")
                 query3.append(identification.size)
@@ -198,13 +206,13 @@ class MarketResearchService: ObservableObject {
         }
         
         return EbayPriceRange(
-            newWithTags: calculateAveragePrice(for: "New with tags", in: conditionGroups),
-            newWithoutTags: calculateAveragePrice(for: "New without tags", in: conditionGroups),
-            likeNew: calculateAveragePrice(for: "Like New", in: conditionGroups),
-            excellent: calculateAveragePrice(for: "Excellent", in: conditionGroups),
-            veryGood: calculateAveragePrice(for: "Very Good", in: conditionGroups),
-            good: calculateAveragePrice(for: "Good", in: conditionGroups),
-            acceptable: calculateAveragePrice(for: "Acceptable", in: conditionGroups),
+            newWithTags: averagePrice(for: "New with tags", in: conditionGroups),
+            newWithoutTags: averagePrice(for: "New without tags", in: conditionGroups),
+            likeNew: averagePrice(for: "Like New", in: conditionGroups),
+            excellent: averagePrice(for: "Excellent", in: conditionGroups),
+            veryGood: averagePrice(for: "Very Good", in: conditionGroups),
+            good: averagePrice(for: "Good", in: conditionGroups),
+            acceptable: averagePrice(for: "Acceptable", in: conditionGroups),
             average: averagePrice,
             soldCount: soldListings.count,
             dateRange: "Last 30 days"
@@ -234,8 +242,8 @@ class MarketResearchService: ObservableObject {
         }
     }
     
-    // MARK: - Calculate Average Price for Condition (Fixed function name)
-    private func calculateAveragePrice(for condition: String, in groups: [String: [EbaySoldListing]]) -> Double? {
+    // MARK: - Calculate Average Price for Condition
+    private func averagePrice(for condition: String, in groups: [String: [EbaySoldListing]]) -> Double? {
         guard let listings = groups[condition], !listings.isEmpty else { return nil }
         let prices = listings.map { $0.price }
         return prices.reduce(0, +) / Double(prices.count)
@@ -437,7 +445,7 @@ class MarketResearchService: ObservableObject {
             components.append(identification.styleCode)
         }
         
-        if !identification.size.isEmpty &&
+        if !identification.size.isEmpty && 
            (identification.category == .sneakers || identification.category == .clothing) {
             components.append("Size \(identification.size)")
         }
@@ -616,113 +624,5 @@ class MarketResearchService: ObservableObject {
         case .collectibles: return 75.0
         default: return 35.0
         }
-    }
-}
-
-// MARK: - Google Sheets Service (FIXED)
-class GoogleSheetsService: ObservableObject {
-    @Published var spreadsheetId = Configuration.spreadsheetID
-    @Published var isConnected = true
-    @Published var isSyncing = false
-    @Published var lastSyncDate: Date?
-    @Published var syncStatus = "Ready to sync"
-    
-    init() {
-        authenticate()
-    }
-    
-    func authenticate() {
-        print("🔗 Google Sheets Service Initialized")
-        isConnected = !Configuration.googleScriptURL.isEmpty
-        syncStatus = isConnected ? "Connected" : "Not configured"
-    }
-    
-    func syncInventory(_ items: [InventoryItem]) {
-        guard isConnected else {
-            print("❌ Google Sheets not connected")
-            return
-        }
-        
-        isSyncing = true
-        syncStatus = "Syncing..."
-        
-        // Convert inventory to sheet format
-        let sheetData: [[String: Any]] = items.map { item in
-            return [
-                "Item Number": item.itemNumber,
-                "Name": item.name,
-                "Category": item.category,
-                "Purchase Price": item.purchasePrice,
-                "Suggested Price": item.suggestedPrice,
-                "Source": item.source,
-                "Condition": item.condition,
-                "Status": item.status.rawValue,
-                "Date Added": ISO8601DateFormatter().string(from: item.dateAdded),
-                "eBay URL": item.ebayURL ?? "",
-                "Brand": item.brand,
-                "Model": item.exactModel,
-                "Size": item.size,
-                "Colorway": item.colorway
-            ]
-        }
-        
-        // Send to Google Sheets via Apps Script
-        sendToGoogleSheets(data: sheetData) { [weak self] success in
-            DispatchQueue.main.async {
-                self?.isSyncing = false
-                if success {
-                    self?.lastSyncDate = Date()
-                    self?.syncStatus = "✅ Synced successfully"
-                } else {
-                    self?.syncStatus = "❌ Sync failed"
-                }
-            }
-        }
-    }
-    
-    private func sendToGoogleSheets(data: [[String: Any]], completion: @escaping (Bool) -> Void) {
-        guard let url = URL(string: Configuration.googleScriptURL) else {
-            completion(false)
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let payload: [String: Any] = [
-            "action": "updateInventory",
-            "data": data
-        ]
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-        } catch {
-            print("❌ Google Sheets payload error: \(error)")
-            completion(false)
-            return
-        }
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                print("❌ Google Sheets sync error: \(error)")
-                completion(false)
-                return
-            }
-            
-            completion(true)
-        }.resume()
-    }
-    
-    func updateItem(_ item: InventoryItem) {
-        syncInventory([item])
-    }
-    
-    func syncAllItems(_ items: [InventoryItem]) {
-        syncInventory(items)
-    }
-    
-    func uploadItem(_ item: InventoryItem) {
-        syncInventory([item])
     }
 }

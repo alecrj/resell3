@@ -2,22 +2,21 @@
 //  EbayAPIService.swift
 //  ResellAI
 //
-//  Created by Alec on 7/31/25.
+//  Real eBay API Service with Sold Comp Lookup
 //
 
 import SwiftUI
 import Foundation
 
-// MARK: - Complete eBay API Service
+// MARK: - Real eBay API Service for Sold Comps
 class EbayAPIService: ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not authenticated"
     @Published var isSearching = false
     @Published var isListing = false
     
-    private let authManager = EbayAuthManager()
-    private let baseURL = "https://api.ebay.com"
-    private let sandboxURL = "https://api.sandbox.ebay.com"
+    private let baseURL = "https://svcs.ebay.com/services/search/FindingService/v1"
+    private let browseURL = "https://api.ebay.com/buy/browse/v1"
     
     // Rate limiting
     private var lastAPICall: Date = Date(timeIntervalSince1970: 0)
@@ -27,398 +26,361 @@ class EbayAPIService: ObservableObject {
         checkAuthenticationStatus()
     }
     
-    // MARK: - Authentication
-    func authenticate(completion: @escaping (Bool) -> Void) {
-        authManager.authenticate { [weak self] success in
-            DispatchQueue.main.async {
-                self?.isAuthenticated = success
-                self?.authStatus = success ? "Authenticated" : "Authentication failed"
-                completion(success)
-            }
-        }
-    }
-    
-    // Convenience method without completion for backwards compatibility
-    func authenticate() {
-        authenticate { _ in }
-    }
-    
+    // MARK: - Authentication Status
     private func checkAuthenticationStatus() {
-        isAuthenticated = authManager.hasValidToken()
-        authStatus = isAuthenticated ? "Authenticated" : "Not authenticated"
+        // For Finding API, we just need the App ID - no OAuth required
+        isAuthenticated = !Configuration.ebayAPIKey.isEmpty
+        authStatus = isAuthenticated ? "Ready" : "eBay API Key missing"
     }
     
-    // MARK: - Market Research - Get Real Sold Listings
-    func getSoldListings(
-        keywords: String,
-        category: String? = nil,
-        condition: EbayCondition? = nil,
+    // MARK: - Real eBay Sold Comp Lookup
+    func getSoldComps(
+        keywords: [String],
         completion: @escaping ([EbaySoldListing]) -> Void
     ) {
         
         guard isAuthenticated else {
-            print("❌ eBay not authenticated")
+            print("❌ eBay API not configured")
+            completion([])
+            return
+        }
+        
+        guard !keywords.isEmpty else {
+            print("❌ No keywords provided for eBay search")
             completion([])
             return
         }
         
         isSearching = true
         
-        let endpoint = "/buy/browse/v1/item_summary/search"
-        let url = URL(string: baseURL + endpoint)!
+        // Create search query from keywords
+        let searchQuery = keywords.prefix(5).joined(separator: " ")
+        print("🔍 Searching eBay sold comps for: \(searchQuery)")
         
-        var queryItems: [URLQueryItem] = [
-            URLQueryItem(name: "q", value: keywords),
-            URLQueryItem(name: "filter", value: "buyingOptions:{AUCTION|FIXED_PRICE},deliveryOptions:{SHIPPING},conditionIds:{1000|1500|2000|2500|3000|4000|5000}"),
-            URLQueryItem(name: "sort", value: "endTimeSoonest"),
-            URLQueryItem(name: "limit", value: "100")
-        ]
-        
-        // Add category filter if specified
-        if let category = category {
-            let categoryID = mapToCategoryID(category)
-            queryItems.append(URLQueryItem(name: "category_ids", value: categoryID))
-        }
-        
-        // Add condition filter if specified
-        if let condition = condition {
-            let conditionID = mapConditionToEbayID(condition)
-            queryItems.append(URLQueryItem(name: "filter", value: "conditionIds:{\(conditionID)}"))
-        }
-        
-        var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-        urlComponents.queryItems = queryItems
-        
-        var request = URLRequest(url: urlComponents.url!)
-        request.setValue("Bearer \(authManager.accessToken ?? "")", forHTTPHeaderField: "Authorization")
-        request.setValue(Configuration.ebayAPIKey, forHTTPHeaderField: "X-EBAY-C-MARKETPLACE-ID")
-        request.setValue("EBAY_US", forHTTPHeaderField: "X-EBAY-C-MARKETPLACE-ID")
-        
-        rateLimitedRequest(request) { [weak self] data, response, error in
-            self?.isSearching = false
-            
-            if let error = error {
-                print("❌ eBay search error: \(error)")
-                completion([])
-                return
-            }
-            
-            guard let data = data else {
-                completion([])
-                return
-            }
-            
-            do {
-                let searchResponse = try JSONDecoder().decode(EbaySearchResponse.self, from: data)
-                let soldListings = self?.processSoldListings(searchResponse.itemSummaries ?? []) ?? []
-                completion(soldListings)
-            } catch {
-                print("❌ eBay search response parsing error: \(error)")
-                completion([])
+        // Use eBay Finding API to get completed/sold items
+        searchCompletedItems(query: searchQuery) { [weak self] results in
+            DispatchQueue.main.async {
+                self?.isSearching = false
+                completion(results)
             }
         }
     }
     
-    // MARK: - Finding API for Historical Data
-    func getCompletedListings(
-        keywords: String,
+    // MARK: - eBay Finding API - Completed Items Search
+    private func searchCompletedItems(
+        query: String,
         completion: @escaping ([EbaySoldListing]) -> Void
     ) {
         
-        guard isAuthenticated else {
-            print("❌ eBay not authenticated")
+        guard let url = URL(string: baseURL) else {
+            print("❌ Invalid eBay Finding API URL")
             completion([])
             return
         }
         
-        let endpoint = "/buy/browse/v1/item_summary/search"
-        let url = URL(string: baseURL + endpoint)!
-        
-        var queryItems: [URLQueryItem] = [
-            URLQueryItem(name: "q", value: keywords),
-            URLQueryItem(name: "filter", value: "buyingOptions:{AUCTION|FIXED_PRICE},itemLocationCountry:US,deliveryOptions:{SHIPPING}"),
-            URLQueryItem(name: "sort", value: "price"),
-            URLQueryItem(name: "limit", value: "200")
-        ]
-        
-        var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-        urlComponents.queryItems = queryItems
-        
-        var request = URLRequest(url: urlComponents.url!)
-        request.setValue("Bearer \(authManager.accessToken ?? "")", forHTTPHeaderField: "Authorization")
-        request.setValue("EBAY_US", forHTTPHeaderField: "X-EBAY-C-MARKETPLACE-ID")
-        
-        rateLimitedRequest(request) { [weak self] data, response, error in
-            if let error = error {
-                print("❌ eBay historical search error: \(error)")
-                completion([])
-                return
-            }
-            
-            guard let data = data else {
-                completion([])
-                return
-            }
-            
-            do {
-                let searchResponse = try JSONDecoder().decode(EbaySearchResponse.self, from: data)
-                let soldListings = self?.processSoldListings(searchResponse.itemSummaries ?? []) ?? []
-                completion(soldListings)
-            } catch {
-                print("❌ eBay historical response parsing error: \(error)")
-                completion([])
-            }
-        }
-    }
-    
-    // MARK: - Create eBay Listing
-    func createListing(
-        item: InventoryItem,
-        analysis: AnalysisResult,
-        completion: @escaping (EbayListingResult) -> Void
-    ) {
-        
-        guard isAuthenticated else {
-            print("❌ eBay not authenticated")
-            completion(EbayListingResult(success: false, listingId: nil, listingURL: nil, error: "Not authenticated"))
-            return
-        }
-        
-        isListing = true
-        
-        print("🏪 Creating eBay listing for: \(analysis.itemName)")
-        
-        // First upload images
-        uploadImages(item: item) { [weak self] imageURLs in
-            guard !imageURLs.isEmpty else {
-                self?.isListing = false
-                completion(EbayListingResult(success: false, listingId: nil, listingURL: nil, error: "Failed to upload images"))
-                return
-            }
-            
-            self?.proceedWithListing(item: item, analysis: analysis, imageURLs: imageURLs, completion: completion)
-        }
-    }
-    
-    private func proceedWithListing(
-        item: InventoryItem,
-        analysis: AnalysisResult,
-        imageURLs: [String],
-        completion: @escaping (EbayListingResult) -> Void
-    ) {
-        
-        let endpoint = "/sell/inventory/v1/inventory_item"
-        let url = URL(string: baseURL + endpoint)!
-        
-        // Create eBay listing payload
-        let listingData = createEbayListingPayload(item: item, analysis: analysis, imageURLs: imageURLs)
-        
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(authManager.accessToken ?? "")", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(Configuration.ebayAPIKey, forHTTPHeaderField: "X-EBAY-C-MARKETPLACE-ID")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: listingData)
-        } catch {
-            completion(EbayListingResult(success: false, listingId: nil, listingURL: nil, error: "Failed to serialize listing data"))
-            return
-        }
+        // Calculate date range - last 30 days
+        let endDate = Date()
+        let startDate = Calendar.current.date(byAdding: .day, value: -30, to: endDate) ?? endDate
+        
+        let dateFormatter = ISO8601DateFormatter()
+        let endDateString = dateFormatter.string(from: endDate)
+        let startDateString = dateFormatter.string(from: startDate)
+        
+        // Build eBay Finding API request
+        let requestBody = [
+            "OPERATION-NAME": "findCompletedItems",
+            "SERVICE-VERSION": "1.0.0",
+            "SECURITY-APPNAME": Configuration.ebayAPIKey,
+            "RESPONSE-DATA-FORMAT": "JSON",
+            "REST-PAYLOAD": "",
+            "keywords": query,
+            "itemFilter(0).name": "SoldItemsOnly",
+            "itemFilter(0).value": "true",
+            "itemFilter(1).name": "EndTimeFrom",
+            "itemFilter(1).value": startDateString,
+            "itemFilter(2).name": "EndTimeTo",
+            "itemFilter(2).value": endDateString,
+            "itemFilter(3).name": "ListingType",
+            "itemFilter(3).value(0)": "FixedPrice",
+            "itemFilter(3).value(1)": "Auction",
+            "paginationInput.entriesPerPage": "100",
+            "sortOrder": "EndTimeSoonest"
+        ]
+        
+        let bodyString = requestBody
+            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")" }
+            .joined(separator: "&")
+        
+        request.httpBody = bodyString.data(using: .utf8)
+        
+        print("🌐 Making eBay Finding API call for: \(query)")
         
         rateLimitedRequest(request) { [weak self] data, response, error in
-            self?.isListing = false
-            
             if let error = error {
-                print("❌ eBay listing creation error: \(error)")
-                completion(EbayListingResult(success: false, listingId: nil, listingURL: nil, error: error.localizedDescription))
+                print("❌ eBay Finding API error: \(error)")
+                completion([])
                 return
             }
             
             guard let data = data else {
-                completion(EbayListingResult(success: false, listingId: nil, listingURL: nil, error: "No response data"))
+                print("❌ No data received from eBay Finding API")
+                completion([])
                 return
             }
             
-            do {
-                let response = try JSONDecoder().decode(EbayListingResponse.self, from: data)
-                
-                if let listingId = response.sku {
-                    let listingURL = "https://www.ebay.com/itm/\(listingId)"
-                    completion(EbayListingResult(success: true, listingId: listingId, listingURL: listingURL, error: nil))
-                    print("✅ eBay listing created: \(listingURL)")
-                } else {
-                    completion(EbayListingResult(success: false, listingId: nil, listingURL: nil, error: "Invalid response"))
-                }
-            } catch {
-                print("❌ eBay listing response parsing error: \(error)")
-                completion(EbayListingResult(success: false, listingId: nil, listingURL: nil, error: "Failed to parse response"))
-            }
+            // Parse eBay Finding API response
+            self?.parseEbayFindingResponse(data: data, completion: completion)
         }
     }
     
-    // MARK: - Image Upload
-    private func uploadImages(item: InventoryItem, completion: @escaping ([String]) -> Void) {
-        // For now, return placeholder URLs
-        // In production, you'd upload to eBay's image hosting service
-        completion(["https://placeholder.com/image1.jpg"])
-    }
-    
-    // MARK: - Helper Methods
-    private func processSoldListings(_ itemSummaries: [EbayItemSummary]) -> [EbaySoldListing] {
-        return itemSummaries.compactMap { item in
-            guard let title = item.title,
-                  let price = item.price?.value else {
-                return nil
+    // MARK: - Parse eBay Finding API Response
+    private func parseEbayFindingResponse(
+        data: Data,
+        completion: @escaping ([EbaySoldListing]) -> Void
+    ) {
+        
+        do {
+            let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            
+            guard let findCompletedItemsResponse = jsonResponse?["findCompletedItemsResponse"] as? [[String: Any]],
+                  let firstResponse = findCompletedItemsResponse.first,
+                  let searchResult = firstResponse["searchResult"] as? [[String: Any]],
+                  let firstResult = searchResult.first,
+                  let items = firstResult["item"] as? [[String: Any]] else {
+                print("❌ Invalid eBay Finding API response structure")
+                completion([])
+                return
             }
             
-            return EbaySoldListing(
-                title: title,
-                price: price,
-                condition: item.condition ?? "Used",
-                soldDate: Date(), // Would need to parse from actual data
-                shippingCost: item.shippingOptions?.first?.shippingCost?.value,
-                bestOffer: false,
-                auction: item.buyingOptions?.contains("AUCTION") ?? false,
-                watchers: item.watchCount
+            print("✅ Found \(items.count) sold items from eBay")
+            
+            var soldListings: [EbaySoldListing] = []
+            
+            for item in items {
+                if let soldListing = parseEbayItem(item: item) {
+                    soldListings.append(soldListing)
+                }
+            }
+            
+            // Filter to last 30 days and sort by date
+            let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+            let recentSoldListings = soldListings
+                .filter { $0.soldDate >= thirtyDaysAgo }
+                .sorted { $0.soldDate > $1.soldDate }
+            
+            print("✅ Filtered to \(recentSoldListings.count) recent sold items (last 30 days)")
+            
+            completion(recentSoldListings)
+            
+        } catch {
+            print("❌ Error parsing eBay Finding API response: \(error)")
+            completion([])
+        }
+    }
+    
+    // MARK: - Parse Individual eBay Item
+    private func parseEbayItem(item: [String: Any]) -> EbaySoldListing? {
+        
+        // Extract title
+        guard let titleArray = item["title"] as? [String],
+              let title = titleArray.first else {
+            return nil
+        }
+        
+        // Extract price
+        guard let sellingStatus = item["sellingStatus"] as? [[String: Any]],
+              let firstStatus = sellingStatus.first,
+              let currentPrice = firstStatus["currentPrice"] as? [[String: Any]],
+              let firstPrice = currentPrice.first,
+              let priceValue = firstPrice["__value__"] as? String,
+              let price = Double(priceValue) else {
+            return nil
+        }
+        
+        // Extract end time (sold date)
+        var soldDate = Date()
+        if let listingInfo = item["listingInfo"] as? [[String: Any]],
+           let firstListing = listingInfo.first,
+           let endTimeArray = firstListing["endTime"] as? [String],
+           let endTimeString = endTimeArray.first {
+            
+            let formatter = ISO8601DateFormatter()
+            soldDate = formatter.date(from: endTimeString) ?? Date()
+        }
+        
+        // Extract condition
+        var condition = "Used"
+        if let conditionArray = item["condition"] as? [[String: Any]],
+           let firstCondition = conditionArray.first,
+           let conditionDisplayName = firstCondition["conditionDisplayName"] as? [String],
+           let conditionName = conditionDisplayName.first {
+            condition = conditionName
+        }
+        
+        // Extract shipping cost
+        var shippingCost: Double? = nil
+        if let shippingInfo = item["shippingInfo"] as? [[String: Any]],
+           let firstShipping = shippingInfo.first,
+           let shippingServiceCost = firstShipping["shippingServiceCost"] as? [[String: Any]],
+           let firstCost = shippingServiceCost.first,
+           let costValue = firstCost["__value__"] as? String,
+           let shipping = Double(costValue) {
+            shippingCost = shipping
+        }
+        
+        // Extract listing type
+        var auction = false
+        if let listingInfo = item["listingInfo"] as? [[String: Any]],
+           let firstListing = listingInfo.first,
+           let listingType = firstListing["listingType"] as? [String],
+           let type = listingType.first {
+            auction = type.contains("Auction")
+        }
+        
+        return EbaySoldListing(
+            title: title,
+            price: price,
+            condition: condition,
+            soldDate: soldDate,
+            shippingCost: shippingCost,
+            bestOffer: false,
+            auction: auction,
+            watchers: nil
+        )
+    }
+    
+    // MARK: - Alternative Search with Different Keywords
+    func searchWithMultipleQueries(
+        keywordSets: [[String]],
+        completion: @escaping ([EbaySoldListing]) -> Void
+    ) {
+        
+        var allResults: [EbaySoldListing] = []
+        let group = DispatchGroup()
+        
+        // Search with up to 3 different keyword combinations
+        for keywords in keywordSets.prefix(3) {
+            group.enter()
+            
+            getSoldComps(keywords: keywords) { results in
+                allResults.append(contentsOf: results)
+                group.leave()
+            }
+        }
+        
+        group.notify(queue: .main) {
+            // Remove duplicates based on title and price
+            let uniqueResults = self.removeDuplicates(from: allResults)
+            completion(uniqueResults)
+        }
+    }
+    
+    // MARK: - Remove Duplicate Listings
+    private func removeDuplicates(from listings: [EbaySoldListing]) -> [EbaySoldListing] {
+        var uniqueListings: [EbaySoldListing] = []
+        var seenSignatures: Set<String> = []
+        
+        for listing in listings {
+            // Create signature from title + price
+            let signature = "\(listing.title.lowercased().prefix(50))-\(String(format: "%.2f", listing.price))"
+            
+            if !seenSignatures.contains(signature) {
+                seenSignatures.insert(signature)
+                uniqueListings.append(listing)
+            }
+        }
+        
+        return uniqueListings.sorted { $0.soldDate > $1.soldDate }
+    }
+    
+    // MARK: - Price Analysis from Sold Comps
+    func analyzeComps(_ soldListings: [EbaySoldListing]) -> CompAnalysis {
+        guard !soldListings.isEmpty else {
+            return CompAnalysis(
+                averagePrice: 0,
+                medianPrice: 0,
+                lowPrice: 0,
+                highPrice: 0,
+                totalSales: 0,
+                averageDaysToSell: 0,
+                priceDistribution: [:],
+                conditionBreakdown: [:]
             )
         }
+        
+        let prices = soldListings.map { $0.price }
+        let sortedPrices = prices.sorted()
+        
+        let averagePrice = prices.reduce(0, +) / Double(prices.count)
+        let medianPrice = sortedPrices.count % 2 == 0 ?
+            (sortedPrices[sortedPrices.count/2 - 1] + sortedPrices[sortedPrices.count/2]) / 2 :
+            sortedPrices[sortedPrices.count/2]
+        
+        let lowPrice = sortedPrices.first ?? 0
+        let highPrice = sortedPrices.last ?? 0
+        
+        // Calculate average days to sell
+        let now = Date()
+        let daysToSell = soldListings.map { Calendar.current.dateComponents([.day], from: $0.soldDate, to: now).day ?? 0 }
+        let averageDaysToSell = daysToSell.isEmpty ? 0 : Double(daysToSell.reduce(0, +)) / Double(daysToSell.count)
+        
+        // Price distribution (by $10 ranges)
+        var priceDistribution: [String: Int] = [:]
+        for price in prices {
+            let range = Int(price / 10) * 10
+            let key = "$\(range)-\(range + 9)"
+            priceDistribution[key, default: 0] += 1
+        }
+        
+        // Condition breakdown
+        var conditionBreakdown: [String: Int] = [:]
+        for listing in soldListings {
+            conditionBreakdown[listing.condition, default: 0] += 1
+        }
+        
+        return CompAnalysis(
+            averagePrice: averagePrice,
+            medianPrice: medianPrice,
+            lowPrice: lowPrice,
+            highPrice: highPrice,
+            totalSales: soldListings.count,
+            averageDaysToSell: averageDaysToSell,
+            priceDistribution: priceDistribution,
+            conditionBreakdown: conditionBreakdown
+        )
     }
     
-    private func mapToCategoryID(_ category: String) -> String {
-        return Configuration.ebayCategoryMappings[category] ?? "267"
-    }
-    
-    private func mapConditionToEbayID(_ condition: EbayCondition) -> String {
-        switch condition {
-        case .newWithTags: return "1000"
-        case .newWithoutTags: return "1500"
-        case .newOther: return "1750"
-        case .likeNew: return "2000"
-        case .excellent: return "2500"
-        case .veryGood: return "3000"
-        case .good: return "4000"
-        case .acceptable: return "5000"
-        case .forPartsNotWorking: return "7000"
-        }
-    }
-    
-    private func createEbayListingPayload(
-        item: InventoryItem,
-        analysis: AnalysisResult,
-        imageURLs: [String]
-    ) -> [String: Any] {
+    // MARK: - Get Pricing Recommendations from Comps
+    func getPricingFromComps(_ soldListings: [EbaySoldListing], condition: EbayCondition) -> EbayPricingRecommendation {
+        let analysis = analyzeComps(soldListings)
         
-        let sku = "RESELLAI-\(item.inventoryCode)"
+        // Adjust pricing based on condition
+        let conditionMultiplier = condition.priceMultiplier
+        let basePrice = analysis.averagePrice * conditionMultiplier
         
-        return [
-            "availability": [
-                "shipToLocationAvailability": [
-                    "quantity": 1
-                ]
-            ],
-            "condition": mapConditionToEbayID(analysis.ebayCondition),
-            "product": [
-                "title": generateOptimizedTitle(for: analysis),
-                "description": generateOptimizedDescription(for: item, analysis: analysis),
-                "imageUrls": imageURLs,
-                "aspects": generateItemSpecifics(for: item, analysis: analysis)
-            ],
-            "sku": sku
-        ]
-    }
-    
-    private func generateOptimizedTitle(for analysis: AnalysisResult) -> String {
-        var title = analysis.itemName
+        let recommendedPrice = basePrice
+        let quickSalePrice = basePrice * 0.90
+        let maxProfitPrice = basePrice * 1.15
+        let competitivePrice = analysis.medianPrice * conditionMultiplier
         
-        if !analysis.brand.isEmpty && !title.contains(analysis.brand) {
-            title = "\(analysis.brand) \(title)"
-        }
-        
-        if !analysis.identificationResult.styleCode.isEmpty {
-            title += " \(analysis.identificationResult.styleCode)"
-        }
-        
-        // Add condition for better visibility
-        title += " - \(analysis.actualCondition)"
-        
-        // Ensure title is under eBay's 80 character limit
-        if title.count > 80 {
-            title = String(title.prefix(77)) + "..."
-        }
-        
-        return title
-    }
-    
-    private func generateOptimizedDescription(for item: InventoryItem, analysis: AnalysisResult) -> String {
-        // Fixed: Access condition notes properly
-        let conditionNotes = analysis.marketAnalysis.conditionAssessment.conditionNotes.joined(separator: "\n")
-        
-        return """
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #e31837; text-align: center;">\(analysis.itemName)</h2>
-            
-            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                <h3 style="color: #333; margin-top: 0;">Product Details</h3>
-                <p><strong>Brand:</strong> \(analysis.brand)</p>
-                <p><strong>Condition:</strong> \(analysis.actualCondition)</p>
-                <p><strong>Style Code:</strong> \(analysis.identificationResult.styleCode)</p>
-                <p><strong>Category:</strong> \(analysis.identificationResult.category.rawValue)</p>
-            </div>
-            
-            <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                <h3 style="color: #856404; margin-top: 0;">Condition Notes</h3>
-                <p>\(conditionNotes)</p>
-            </div>
-            
-            <div style="background: #d1ecf1; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                <h3 style="color: #0c5460; margin-top: 0;">Why Buy From Us?</h3>
-                <ul style="margin: 10px 0;">
-                    <li>✅ AI-verified authenticity</li>
-                    <li>📦 Fast, secure shipping</li>
-                    <li>🔄 30-day return policy</li>
-                    <li>⭐ 100% feedback rating</li>
-                </ul>
-            </div>
-            
-            <div style="text-align: center; margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-                <p style="margin: 0; color: #666;">Questions? Message us anytime - we respond quickly!</p>
-            </div>
-        </div>
-        
-        <div style="margin-top: 20px; padding: 15px; background: #263238; color: white; text-align: center; border-radius: 8px;">
-            <p style="margin: 0;"><strong>Keywords:</strong> \(analysis.keywords.joined(separator: " • "))</p>
-        </div>
-        """
-    }
-    
-    private func generateItemSpecifics(for item: InventoryItem, analysis: AnalysisResult) -> [String: String] {
-        var specifics: [String: String] = [:]
-        
-        if !analysis.brand.isEmpty {
-            specifics["Brand"] = analysis.brand
-        }
-        
-        if !item.size.isEmpty {
-            specifics["Size"] = item.size
-        }
-        
-        if !item.colorway.isEmpty {
-            specifics["Color"] = item.colorway
-        }
-        
-        if !analysis.identificationResult.styleCode.isEmpty {
-            specifics["Style Code"] = analysis.identificationResult.styleCode
-        }
-        
-        if !analysis.identificationResult.productLine.isEmpty {
-            specifics["Product Line"] = analysis.identificationResult.productLine
-        }
-        
-        specifics["Condition"] = analysis.actualCondition
-        specifics["Authentication"] = "AI Verified"
-        
-        return specifics
+        return EbayPricingRecommendation(
+            recommendedPrice: recommendedPrice,
+            priceRange: (min: analysis.lowPrice * conditionMultiplier, max: analysis.highPrice * conditionMultiplier),
+            competitivePrice: competitivePrice,
+            quickSalePrice: quickSalePrice,
+            maxProfitPrice: maxProfitPrice,
+            pricingStrategy: .competitive,
+            priceJustification: [
+                "Based on \(analysis.totalSales) recent sales",
+                "Average price: $\(String(format: "%.2f", analysis.averagePrice))",
+                "Median price: $\(String(format: "%.2f", analysis.medianPrice))",
+                "Adjusted for \(condition.rawValue) condition"
+            ]
+        )
     }
     
     // MARK: - Rate Limiting
@@ -445,101 +407,59 @@ class EbayAPIService: ObservableObject {
             }
         }.resume()
     }
+    
+    // MARK: - Service Health Check
+    func performHealthCheck() -> EbayServiceHealthStatus {
+        let ebayConfigured = !Configuration.ebayAPIKey.isEmpty
+        let serviceWorking = !isSearching || !isListing
+        
+        return EbayServiceHealthStatus(
+            ebayConfigured: ebayConfigured,
+            listingWorking: serviceWorking,
+            overallHealthy: ebayConfigured && serviceWorking,
+            lastUpdated: Date()
+        )
+    }
 }
 
-// MARK: - eBay Data Models (Non-duplicated)
-
-struct EbaySearchResponse: Codable {
-    let itemSummaries: [EbayItemSummary]?
-    let total: Int?
-    let limit: Int?
-    let offset: Int?
+// MARK: - Comp Analysis Data Structure
+struct CompAnalysis {
+    let averagePrice: Double
+    let medianPrice: Double
+    let lowPrice: Double
+    let highPrice: Double
+    let totalSales: Int
+    let averageDaysToSell: Double
+    let priceDistribution: [String: Int]
+    let conditionBreakdown: [String: Int]
+    
+    var priceRange: Double {
+        return highPrice - lowPrice
+    }
+    
+    var priceVolatility: Double {
+        guard averagePrice > 0 else { return 0 }
+        return priceRange / averagePrice
+    }
+    
+    var demandLevel: String {
+        switch averageDaysToSell {
+        case 0...7: return "High"
+        case 8...21: return "Medium"
+        default: return "Low"
+        }
+    }
+    
+    var marketConfidence: Double {
+        switch totalSales {
+        case 20...: return 0.9
+        case 10...19: return 0.8
+        case 5...9: return 0.7
+        case 1...4: return 0.6
+        default: return 0.3
+        }
+    }
 }
 
-struct EbayItemSummary: Codable {
-    let itemId: String?
-    let title: String?
-    let price: EbayPrice?
-    let condition: String?
-    let categoryId: String?
-    let buyingOptions: [String]?
-    let shippingOptions: [EbayShippingOption]?
-    let watchCount: Int?
-    let image: EbayImage?
-}
-
-struct EbayPrice: Codable {
-    let value: Double?
-    let currency: String?
-}
-
-struct EbayShippingOption: Codable {
-    let type: String?
-    let shippingCost: EbayPrice?
-}
-
-struct EbayImage: Codable {
-    let imageUrl: String?
-}
-
-struct EbayFindingResponse: Codable {
-    let findCompletedItemsResponse: [EbayFindingResult]?
-}
-
-struct EbayFindingResult: Codable {
-    let searchResult: [EbaySearchResult]?
-}
-
-struct EbaySearchResult: Codable {
-    let item: [EbayFindingItem]?
-}
-
-struct EbayFindingItem: Codable {
-    let title: [String]?
-    let sellingStatus: [EbaySellingStatus]?
-    let listingInfo: [EbayListingInfo]?
-    let condition: [EbayConditionInfo]?
-    let shippingInfo: [EbayShippingInfo]?
-}
-
-struct EbaySellingStatus: Codable {
-    let currentPrice: [EbayCurrentPrice]?
-}
-
-struct EbayCurrentPrice: Codable {
-    let value: String?
-    let currencyId: String?
-}
-
-struct EbayListingInfo: Codable {
-    let listingType: [String]?
-    let endTime: [String]?
-}
-
-struct EbayConditionInfo: Codable {
-    let conditionDisplayName: [String]?
-}
-
-struct EbayShippingInfo: Codable {
-    let shippingServiceCost: [EbayCurrentPrice]?
-}
-
-struct EbayListingResponse: Codable {
-    let sku: String?
-    let statusCode: Int?
-    let errors: [EbayError]?
-}
-
-struct EbayError: Codable {
-    let errorId: String?
-    let domain: String?
-    let category: String?
-    let message: String?
-}
-
-struct EbayListingResult {
-    let success: Bool
-    let listingId: String?
-    let listingURL: String?
-    let error: String?
-}
+// MARK: - Service Health Check Implementation
+// Note: EbayServiceHealthStatus is defined in AlService.swift
