@@ -1,6 +1,17 @@
 import SwiftUI
 
-// MARK: - Additional Button Styles (ScaleButtonStyle is in ContentView.swift)
+// MARK: - Button Styles for ResellAI
+
+// Main scale button style used throughout the app
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: ButtonStyle.Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Supporting Components
 
 struct AppleStatChip: View {
     let label: String

@@ -537,7 +537,7 @@ struct CleanPhotoPlaceholder: View {
                     .fill(Color.accentColor.opacity(0.03))
             )
         }
-        .buttonStyle(CleanButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
     }
 }
 
@@ -601,14 +601,14 @@ struct CleanActionButtons: View {
                     )
                 }
                 .disabled(isAnalyzing || !isConfigured)
-                .buttonStyle(CleanButtonStyle())
+                .buttonStyle(ScaleButtonStyle())
                 
                 // Reset button
                 if !isAnalyzing {
                     Button("Start Over", action: onReset)
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.secondary)
-                        .buttonStyle(CleanButtonStyle())
+                        .buttonStyle(ScaleButtonStyle())
                 }
             }
         }
@@ -637,7 +637,7 @@ struct CleanActionButton: View {
                     .fill(color.opacity(0.1))
             )
         }
-        .buttonStyle(CleanButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
     }
 }
 
@@ -707,7 +707,7 @@ struct CleanAnalysisResult: View {
                             .fill(Color.accentColor)
                     )
                 }
-                .buttonStyle(CleanButtonStyle())
+                .buttonStyle(ScaleButtonStyle())
                 
                 Button(action: onDirectList) {
                     HStack(spacing: 8) {
@@ -723,7 +723,7 @@ struct CleanAnalysisResult: View {
                             .fill(Color.green)
                     )
                 }
-                .buttonStyle(CleanButtonStyle())
+                .buttonStyle(ScaleButtonStyle())
             }
         }
         .padding(24)
@@ -842,15 +842,6 @@ struct CleanPriceCard: View {
     }
 }
 
-// MARK: - Clean Button Style
-struct CleanButtonStyle: ButtonStyle {
-    func makeBody(configuration: ButtonStyle.Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
-    }
-}
-
 // MARK: - Clean Prospecting View
 struct ProspectingView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
@@ -922,7 +913,7 @@ struct ProspectingView: View {
                                 )
                             }
                             .disabled(aiService.isAnalyzing || !Configuration.isFullyConfigured)
-                            .buttonStyle(CleanButtonStyle())
+                            .buttonStyle(ScaleButtonStyle())
                         }
                     }
                     
@@ -1032,7 +1023,7 @@ struct ProspectPhotoPlaceholder: View {
                     .fill(Color.purple.opacity(0.03))
             )
         }
-        .buttonStyle(CleanButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
     }
 }
 
