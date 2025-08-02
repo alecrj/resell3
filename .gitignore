@@ -1,0 +1,31 @@
+ResellAI.xcodeproj/xcshareddata/xcschemes/
+# Sensitive config
+Configuration.swift
+
+# Xcode specific
+.DS_Store
+*.xcworkspace
+xcuserdata/
+DerivedData/
+build/
+*.xcuserstate
+
+# SwiftPM
+Packages/
+.package.resolved
+
+# CocoaPods (if using)
+Pods/
+Podfile.lock
+
+# Carthage (if using)
+Carthage/
+
+# Fastlane (if using)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+
+# Misc
+*.swp
+*.lock
