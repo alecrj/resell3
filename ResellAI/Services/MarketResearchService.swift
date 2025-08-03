@@ -2,15 +2,7 @@
 //  MarketResearchService.swift
 //  ResellAI
 //
-//  Created by Alec on 8/2/25.
-//
-
-
-//
-//  MarketResearchService.swift
-//  ResellAI
-//
-//  Real Market Research with eBay Sold Comp Integration
+//  Real Market Research with eBay Sold Comp Integration - Fixed
 //
 
 import SwiftUI
@@ -91,7 +83,7 @@ class MarketResearchService: ObservableObject {
             var query3 = [identification.brand, identification.productLine]
             
             // Add size if available and relevant (mainly for shoes/clothing)
-            if !identification.size.isEmpty && 
+            if !identification.size.isEmpty &&
                (identification.category == .sneakers || identification.category == .clothing) {
                 query3.append("size")
                 query3.append(identification.size)
@@ -195,10 +187,10 @@ class MarketResearchService: ObservableObject {
         )
     }
     
-    // MARK: - Create Price Range from Real Comps
+    // MARK: - Create Price Range from Real Comps - FIXED
     private func createPriceRangeFromComps(soldListings: [EbaySoldListing]) -> EbayPriceRange {
         let prices = soldListings.map { $0.price }
-        let averagePrice = prices.isEmpty ? 0 : prices.reduce(0, +) / Double(prices.count)
+        let totalAveragePrice = prices.isEmpty ? 0 : prices.reduce(0, +) / Double(prices.count)
         
         // Group by condition and calculate average for each
         let conditionGroups = Dictionary(grouping: soldListings) { listing in
@@ -213,7 +205,7 @@ class MarketResearchService: ObservableObject {
             veryGood: averagePrice(for: "Very Good", in: conditionGroups),
             good: averagePrice(for: "Good", in: conditionGroups),
             acceptable: averagePrice(for: "Acceptable", in: conditionGroups),
-            average: averagePrice,
+            average: totalAveragePrice,
             soldCount: soldListings.count,
             dateRange: "Last 30 days"
         )
@@ -445,7 +437,7 @@ class MarketResearchService: ObservableObject {
             components.append(identification.styleCode)
         }
         
-        if !identification.size.isEmpty && 
+        if !identification.size.isEmpty &&
            (identification.category == .sneakers || identification.category == .clothing) {
             components.append("Size \(identification.size)")
         }

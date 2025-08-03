@@ -2,15 +2,7 @@
 //  EbayCompDemoView.swift
 //  ResellAI
 //
-//  Created by Alec on 8/2/25.
-//
-
-
-//
-//  EbayCompDemoView.swift
-//  ResellAI
-//
-//  Demo View to Test Real eBay Comp Lookup
+//  Demo View to Test Real eBay Comp Lookup - Fixed
 //
 
 import SwiftUI
@@ -158,21 +150,21 @@ struct EbayCompDemoView: View {
         
         print("🔍 Demo search starting for: \(keywords)")
         
-        ebayAPIService.getSoldComps(keywords: keywords) { [weak self] results in
+        ebayAPIService.getSoldComps(keywords: keywords) { results in
             DispatchQueue.main.async {
-                self?.isSearching = false
-                self?.soldComps = results
+                self.isSearching = false
+                self.soldComps = results
                 
                 if results.isEmpty {
-                    self?.searchMessage = "No sold comps found for '\(keywords.joined(separator: " "))'"
+                    self.searchMessage = "No sold comps found for '\(keywords.joined(separator: " "))'"
                 } else {
-                    self?.searchMessage = "Found \(results.count) sold comps from last 30 days"
-                    self?.compAnalysis = self?.ebayAPIService.analyzeComps(results)
+                    self.searchMessage = "Found \(results.count) sold comps from last 30 days"
+                    self.compAnalysis = self.ebayAPIService.analyzeComps(results)
                     
                     print("✅ Demo search complete:")
                     print("  • Found: \(results.count) sold items")
-                    print("  • Average Price: $\(String(format: "%.2f", self?.compAnalysis?.averagePrice ?? 0))")
-                    print("  • Price Range: $\(String(format: "%.2f", self?.compAnalysis?.lowPrice ?? 0)) - $\(String(format: "%.2f", self?.compAnalysis?.highPrice ?? 0))")
+                    print("  • Average Price: $\(String(format: "%.2f", self.compAnalysis?.averagePrice ?? 0))")
+                    print("  • Price Range: $\(String(format: "%.2f", self.compAnalysis?.lowPrice ?? 0)) - $\(String(format: "%.2f", self.compAnalysis?.highPrice ?? 0))")
                 }
             }
         }
