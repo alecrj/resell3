@@ -18,6 +18,8 @@ class EbayAuthManager: NSObject, ObservableObject {
     @Published var isAuthenticating = false
     @Published var authError: String?
     
+    static let shared = EbayAuthManager()
+    
     private let clientId = Configuration.ebayAPIKey
     private let clientSecret = Configuration.ebayClientSecret
     private let redirectURI = Configuration.ebayRedirectURI
@@ -495,9 +497,9 @@ class EbayAuthManager: NSObject, ObservableObject {
     }
     
     private func generateCodeChallenge(from verifier: String) -> String {
-        let challenge = Data(verifier.utf8)
-        let hash = challenge.sha256()
-        return hash.base64EncodedString()
+        let data = Data(verifier.utf8)
+        let digest = SHA256.hash(data: data)
+        return Data(digest).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")

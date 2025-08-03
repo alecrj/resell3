@@ -1,934 +1,562 @@
 //
-//  AlService.swift
+//  AIService.swift
 //  ResellAI
 //
-//  Complete AI and eBay Listing Services - Fixed
+//  Complete AI Analysis Service
 //
 
-import SwiftUI
 import Foundation
+import SwiftUI
 
-// MARK: - AI Service Wrapper - Fixed
 class AIService: ObservableObject {
     @Published var isAnalyzing = false
-    @Published var analysisProgress = "Ready to analyze"
-    @Published var currentStep = 0
-    @Published var lastAnalysisResult: AnalysisResult?
-    @Published var analysisHistory: [AnalysisResult] = []
+    @Published var analysisProgress = 0.0
+    @Published var currentStep = ""
+    @Published var analysisResult: AnalysisResult?
+    @Published var error: String?
     
-    private let realService = RealAIAnalysisService()
+    private let steps = [
+        "Analyzing product images...",
+        "Identifying brand and model...",
+        "Researching eBay sold listings...",
+        "Calculating market price...",
+        "Generating listing suggestions..."
+    ]
     
-    init() {
-        print("🤖 AI Service initialized")
-    }
-    
-    // Fixed: Changed analyzeImages to analyzeItem and handled optional result
-    func analyzeImages(_ images: [UIImage], completion: @escaping (AnalysisResult) -> Void) {
-        print("🔍 Starting analysis of \(images.count) images")
+    // MARK: - Main Analysis Function
+    func analyzeItem(images: [UIImage]) async {
+        await MainActor.run {
+            isAnalyzing = true
+            analysisProgress = 0.0
+            error = nil
+            analysisResult = nil
+        }
         
-        realService.analyzeItem(images: images) { result in
-            DispatchQueue.main.async {
-                // Fixed: Handle optional result properly
-                if let analysisResult = result {
-                    self.lastAnalysisResult = analysisResult
-                    self.analysisHistory.append(analysisResult)
-                    completion(analysisResult)
-                } else {
-                    // Create fallback result for failed analysis
-                    let fallbackResult = AnalysisResult.createFallback()
-                    self.lastAnalysisResult = fallbackResult
-                    completion(fallbackResult)
-                }
-            }
-        }
-    }
-    
-    func analyzeBarcode(_ barcode: String, images: [UIImage], completion: @escaping (AnalysisResult) -> Void) {
-        print("📱 Analyzing barcode: \(barcode)")
-        
-        realService.analyzeBarcode(barcode, images: images) { result in
-            DispatchQueue.main.async {
-                if let analysisResult = result {
-                    completion(analysisResult)
-                } else {
-                    completion(AnalysisResult.createFallback())
-                }
-            }
-        }
-    }
-    
-    // MARK: - Additional Analysis Features
-    func getProductAuthentication(images: [UIImage], productInfo: PrecisionIdentificationResult, completion: @escaping (AuthenticationResult) -> Void) {
-        realService.authenticateProduct(images, productInfo: productInfo) { result in
-            DispatchQueue.main.async {
-                completion(result)
-            }
-        }
-    }
-    
-    func getMarketIntelligence(for product: String, completion: @escaping (MarketIntelligence) -> Void) {
-        realService.getMarketIntelligence(for: product) { intelligence in
-            DispatchQueue.main.async {
-                completion(intelligence)
-            }
-        }
-    }
-    
-    func extractTextFromImages(_ images: [UIImage], completion: @escaping ([String]) -> Void) {
-        realService.detectBrands(in: images) { textArray in
-            DispatchQueue.main.async {
-                completion(textArray)
-            }
-        }
-    }
-    
-    func detectBrands(in images: [UIImage], completion: @escaping ([String]) -> Void) {
-        realService.detectBrands(in: images) { brands in
-            DispatchQueue.main.async {
-                completion(brands)
-            }
-        }
-    }
-    
-    // MARK: - Status Methods
-    var isConfigured: Bool {
-        return !Configuration.openAIKey.isEmpty
-    }
-    
-    var configurationStatus: String {
-        if isConfigured {
-            return "OpenAI configured and ready"
-        } else {
-            return "OpenAI API key missing"
-        }
-    }
-    
-    // MARK: - Utility Methods
-    func cancelAnalysis() {
-        DispatchQueue.main.async {
-            self.isAnalyzing = false
-            self.analysisProgress = "Analysis cancelled"
-            self.currentStep = 0
-        }
-    }
-    
-    func resetProgress() {
-        DispatchQueue.main.async {
-            self.currentStep = 0
-            self.analysisProgress = "Ready"
-            self.isAnalyzing = false
-        }
-    }
-}
-
-// MARK: - Complete eBay Listing Service
-class EbayListingService: ObservableObject {
-    @Published var isListing = false
-    @Published var listingProgress = "Ready to list"
-    @Published var listingResults: [EbayListingResult] = []
-    @Published var autoListingQueue: [InventoryItem] = []
-    
-    private let ebayAuthManager = EbayAuthManager()
-    private let imageUploadService = EbayImageUploadService()
-    
-    // eBay Sell API endpoints
-    private var sellAPIBase: String {
-        return Configuration.ebayEnvironment == "SANDBOX" ?
-            "https://api.sandbox.ebay.com" :
-            "https://api.ebay.com"
-    }
-    
-    init() {
-        print("🏪 eBay Listing Service initialized")
-        validateConfiguration()
-    }
-    
-    // MARK: - Configuration Validation
-    private func validateConfiguration() {
-        if !Configuration.isEbayConfigured {
-            print("⚠️ eBay not fully configured")
-            listingProgress = "eBay configuration incomplete"
-        } else {
-            print("✅ eBay Listing Service ready")
-            listingProgress = "Ready to list"
-        }
-    }
-    
-    // MARK: - Main Listing Function
-    func createListing(
-        item: InventoryItem,
-        analysis: AnalysisResult,
-        completion: @escaping (EbayListingResult) -> Void
-    ) {
-        
-        print("🏪 Creating eBay listing for: \(item.name)")
-        
-        guard Configuration.isEbayConfigured else {
-            let result = EbayListingResult(
-                success: false,
-                listingId: nil,
-                listingURL: nil,
-                error: "eBay not configured"
+        do {
+            // Step 1: Image Analysis
+            await updateProgress(step: 0)
+            let imageAnalysis = await analyzeImages(images)
+            
+            // Step 2: Product Identification
+            await updateProgress(step: 1)
+            let productInfo = await identifyProduct(from: imageAnalysis, images: images)
+            
+            // Step 3: Market Research
+            await updateProgress(step: 2)
+            let marketData = await researchMarket(for: productInfo)
+            
+            // Step 4: Price Calculation
+            await updateProgress(step: 3)
+            let pricing = calculatePricing(marketData: marketData, condition: productInfo.condition)
+            
+            // Step 5: Generate Listing
+            await updateProgress(step: 4)
+            let listing = generateListing(productInfo: productInfo, marketData: marketData, pricing: pricing)
+            
+            // Complete analysis
+            let result = AnalysisResult(
+                productName: productInfo.name,
+                category: productInfo.category,
+                brand: productInfo.brand,
+                condition: productInfo.condition,
+                estimatedValue: pricing.suggestedPrice,
+                confidence: productInfo.confidence,
+                description: listing.description,
+                suggestedTitle: listing.title,
+                suggestedKeywords: listing.keywords,
+                marketData: marketData,
+                competitionLevel: pricing.competitionLevel,
+                pricingStrategy: pricing.strategy,
+                listingTips: listing.tips
             )
-            completion(result)
-            return
-        }
-        
-        isListing = true
-        listingProgress = "Checking eBay authentication..."
-        
-        ensureAuthenticated { [weak self] success in
-            if success {
-                self?.performListingCreation(item: item, analysis: analysis, completion: completion)
-            } else {
-                let result = EbayListingResult(
-                    success: false,
-                    listingId: nil,
-                    listingURL: nil,
-                    error: "eBay authentication failed"
-                )
-                self?.handleListingCompletion(result: result, completion: completion)
-            }
-        }
-    }
-    
-    // MARK: - Authentication Check
-    private func ensureAuthenticated(completion: @escaping (Bool) -> Void) {
-        if ebayAuthManager.hasValidToken() {
-            print("✅ eBay already authenticated")
-            completion(true)
-        } else {
-            print("🔐 Need to authenticate with eBay...")
-            listingProgress = "Signing in to eBay..."
             
-            ebayAuthManager.signInWithEbay { success in
-                DispatchQueue.main.async {
-                    completion(success)
-                }
-            }
-        }
-    }
-    
-    // MARK: - Complete Listing Creation Process
-    private func performListingCreation(
-        item: InventoryItem,
-        analysis: AnalysisResult,
-        completion: @escaping (EbayListingResult) -> Void
-    ) {
-        
-        listingProgress = "Uploading images..."
-        
-        // Step 1: Upload images to eBay
-        uploadImages(analysis.images) { [weak self] imageURLs, error in
-            if let error = error {
-                let result = EbayListingResult(
-                    success: false,
-                    listingId: nil,
-                    listingURL: nil,
-                    error: "Image upload failed: \(error)"
-                )
-                self?.handleListingCompletion(result: result, completion: completion)
-                return
+            await MainActor.run {
+                self.analysisResult = result
+                self.analysisProgress = 1.0
+                self.isAnalyzing = false
             }
             
-            // Step 2: Create the actual listing
-            self?.createEbayListing(
-                item: item,
-                analysis: analysis,
-                imageURLs: imageURLs,
-                completion: completion
-            )
-        }
-    }
-    
-    // MARK: - Image Upload to eBay
-    private func uploadImages(
-        _ images: [UIImage],
-        completion: @escaping ([String], String?) -> Void
-    ) {
-        
-        var uploadedURLs: [String] = []
-        var uploadErrors: [String] = []
-        let uploadGroup = DispatchGroup()
-        
-        for (index, image) in images.enumerated() {
-            uploadGroup.enter()
-            
-            uploadImageToEbay(image, index: index) { imageURL, error in
-                if let imageURL = imageURL {
-                    uploadedURLs.append(imageURL)
-                } else if let error = error {
-                    uploadErrors.append(error)
-                }
-                uploadGroup.leave()
-            }
-        }
-        
-        uploadGroup.notify(queue: .main) {
-            if uploadedURLs.isEmpty {
-                completion([], uploadErrors.first ?? "All image uploads failed")
-            } else {
-                completion(uploadedURLs, nil)
+        } catch {
+            await MainActor.run {
+                self.error = error.localizedDescription
+                self.isAnalyzing = false
             }
         }
     }
     
-    // MARK: - Individual Image Upload
-    private func uploadImageToEbay(
-        _ image: UIImage,
-        index: Int,
-        completion: @escaping (String?, String?) -> Void
-    ) {
-        
-        guard let accessToken = ebayAuthManager.accessToken else {
-            completion(nil, "No access token")
-            return
+    // MARK: - Image Analysis
+    private func analyzeImages(_ images: [UIImage]) async -> ImageAnalysisResult {
+        guard !images.isEmpty else {
+            return ImageAnalysisResult(description: "No images provided", confidence: 0.0)
         }
         
-        // Use eBay's upload image endpoint
-        let uploadURL = "\(sellAPIBase)/sell/inventory/v1/inventory_item/uploadPicture"
-        
-        guard let url = URL(string: uploadURL) else {
-            completion(nil, "Invalid upload URL")
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // Convert image to base64 for eBay API
-        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-            completion(nil, "Failed to convert image to data")
-            return
+        // Convert first image to base64
+        guard let imageData = images.first?.jpegData(compressionQuality: 0.8) else {
+            return ImageAnalysisResult(description: "Could not process image", confidence: 0.0)
         }
         
         let base64Image = imageData.base64EncodedString()
         
+        let messages: [[String: Any]] = [
+            [
+                "role": "system",
+                "content": """
+                You are an expert reseller who can identify products from photos. Analyze this image and provide:
+                1. Product name and exact model if identifiable
+                2. Brand name
+                3. Category (clothing, shoes, electronics, etc.)
+                4. Condition assessment (New with tags, Like New, Excellent, Very Good, Good, Acceptable, For parts)
+                5. Notable features, size, color, style details
+                6. Authentication details if applicable
+                7. Estimated resale potential (1-10 scale)
+                
+                Be specific and detailed. Focus on details that matter for resale value.
+                """
+            ],
+            [
+                "role": "user",
+                "content": [
+                    [
+                        "type": "text",
+                        "text": "Analyze this item for resale. What exactly is this product?"
+                    ],
+                    [
+                        "type": "image_url",
+                        "image_url": [
+                            "url": "data:image/jpeg;base64,\(base64Image)"
+                        ]
+                    ]
+                ]
+            ]
+        ]
+        
         let requestBody: [String: Any] = [
-            "image": base64Image,
-            "format": "JPEG"
+            "model": "gpt-4o",
+            "messages": messages,
+            "max_tokens": 1000,
+            "temperature": 0.1
         ]
         
         do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        } catch {
-            completion(nil, "Failed to serialize image data")
-            return
-        }
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                completion(nil, "Upload error: \(error.localizedDescription)")
-                return
-            }
+            let response = try await makeOpenAIRequest(body: requestBody)
+            let choices = response["choices"] as? [[String: Any]] ?? []
+            let firstChoice = choices.first
+            let message = firstChoice?["message"] as? [String: Any]
+            let description = message?["content"] as? String ?? "Could not analyze image"
             
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 201 || httpResponse.statusCode == 200 else {
-                completion(nil, "Image upload failed")
-                return
-            }
-            
-            if let data = data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let imageURL = json["imageUrl"] as? String {
-                completion(imageURL, nil)
-            } else {
-                // Fallback: create a mock URL for testing
-                let mockURL = "https://i.ebayimg.com/images/g/mock-image-\(index).jpg"
-                completion(mockURL, nil)
-            }
-        }.resume()
-    }
-    
-    // MARK: - Create eBay Listing
-    private func createEbayListing(
-        item: InventoryItem,
-        analysis: AnalysisResult,
-        imageURLs: [String],
-        completion: @escaping (EbayListingResult) -> Void
-    ) {
-        
-        listingProgress = "Creating eBay listing..."
-        
-        // Build listing data
-        let listingData = buildListingData(
-            item: item,
-            analysis: analysis,
-            imageURLs: imageURLs
-        )
-        
-        // Step 1: Create inventory item
-        createInventoryItem(listingData: listingData) { [weak self] inventoryResult in
-            if inventoryResult.success {
-                // Step 2: Create listing from inventory item
-                self?.createOfferFromInventory(listingData: listingData) { offerResult in
-                    self?.handleListingCompletion(result: offerResult, completion: completion)
-                }
-            } else {
-                self?.handleListingCompletion(result: inventoryResult, completion: completion)
-            }
-        }
-    }
-    
-    // MARK: - Build Listing Data
-    private func buildListingData(
-        item: InventoryItem,
-        analysis: AnalysisResult,
-        imageURLs: [String]
-    ) -> EbayListingData {
-        
-        // Generate SKU
-        let sku = generateSKU(for: item)
-        
-        // Get eBay category ID
-        let categoryId = getCategoryId(for: analysis.category)
-        
-        // Get condition ID
-        let conditionId = getConditionId(for: analysis.ebayCondition)
-        
-        // Build shipping details
-        let shippingDetails = buildShippingDetails()
-        
-        // Build return policy
-        let returnPolicy = buildReturnPolicy()
-        
-        return EbayListingData(
-            sku: sku,
-            title: analysis.ebayTitle,
-            description: buildListingDescription(analysis: analysis),
-            categoryId: categoryId,
-            conditionId: conditionId,
-            conditionDescription: analysis.ebayCondition.description,
-            price: analysis.realisticPrice,
-            quantity: 1,
-            imageURLs: imageURLs,
-            shippingDetails: shippingDetails,
-            returnPolicy: returnPolicy,
-            listingDuration: "GTC", // Good Till Cancelled
-            brand: analysis.brand,
-            size: analysis.identificationResult.size,
-            color: analysis.identificationResult.colorway
-        )
-    }
-    
-    // MARK: - Create Inventory Item
-    private func createInventoryItem(
-        listingData: EbayListingData,
-        completion: @escaping (EbayListingResult) -> Void
-    ) {
-        
-        guard let accessToken = ebayAuthManager.accessToken else {
-            completion(EbayListingResult(
-                success: false,
-                listingId: nil,
-                listingURL: nil,
-                error: "No access token"
-            ))
-            return
-        }
-        
-        let endpoint = "\(sellAPIBase)/sell/inventory/v1/inventory_item/\(listingData.sku)"
-        
-        guard let url = URL(string: endpoint) else {
-            completion(EbayListingResult(
-                success: false,
-                listingId: nil,
-                listingURL: nil,
-                error: "Invalid endpoint URL"
-            ))
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let inventoryItem: [String: Any] = [
-            "availability": [
-                "shipToLocationAvailability": [
-                    "quantity": listingData.quantity
-                ]
-            ],
-            "condition": listingData.conditionId,
-            "conditionDescription": listingData.conditionDescription,
-            "product": [
-                "title": listingData.title,
-                "description": listingData.description,
-                "aspects": [
-                    "Brand": [listingData.brand],
-                    "Size": [listingData.size],
-                    "Color": [listingData.color]
-                ],
-                "brand": listingData.brand,
-                "imageUrls": listingData.imageURLs
-            ]
-        ]
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: inventoryItem, options: .prettyPrinted)
+            return ImageAnalysisResult(description: description, confidence: 0.85)
         } catch {
-            completion(EbayListingResult(
-                success: false,
-                listingId: nil,
-                listingURL: nil,
-                error: "Failed to serialize inventory data"
-            ))
-            return
+            print("Image analysis error: \(error)")
+            return ImageAnalysisResult(description: "Analysis failed", confidence: 0.0)
+        }
+    }
+    
+    // MARK: - Product Identification
+    private func identifyProduct(from analysis: ImageAnalysisResult, images: [UIImage]) async -> ProductInfo {
+        let prompt = """
+        Based on this product analysis: \(analysis.description)
+        
+        Extract and format the following information as JSON:
+        {
+            "name": "Exact product name",
+            "brand": "Brand name",
+            "category": "Primary category",
+            "condition": "Condition assessment",
+            "model": "Specific model/style",
+            "size": "Size if applicable",
+            "color": "Primary color",
+            "year": "Release year if known",
+            "confidence": 0.85
         }
         
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    completion(EbayListingResult(
-                        success: false,
-                        listingId: nil,
-                        listingURL: nil,
-                        error: "Inventory creation failed: \(error.localizedDescription)"
-                    ))
-                    return
-                }
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    completion(EbayListingResult(
-                        success: false,
-                        listingId: nil,
-                        listingURL: nil,
-                        error: "Invalid response"
-                    ))
-                    return
-                }
-                
-                if httpResponse.statusCode == 201 || httpResponse.statusCode == 204 {
-                    completion(EbayListingResult(
-                        success: true,
-                        listingId: listingData.sku,
-                        listingURL: nil,
-                        error: nil
-                    ))
-                } else {
-                    let errorMessage = String(data: data ?? Data(), encoding: .utf8) ?? "Unknown error"
-                    completion(EbayListingResult(
-                        success: false,
-                        listingId: nil,
-                        listingURL: nil,
-                        error: "Inventory creation failed with status \(httpResponse.statusCode): \(errorMessage)"
-                    ))
-                }
-            }
-        }.resume()
-    }
-    
-    // MARK: - Create Offer from Inventory
-    private func createOfferFromInventory(
-        listingData: EbayListingData,
-        completion: @escaping (EbayListingResult) -> Void
-    ) {
+        Use these exact condition options: "New with tags", "New without tags", "New other", "Like New", "Excellent", "Very Good", "Good", "Acceptable", "For parts or not working"
         
-        guard let accessToken = ebayAuthManager.accessToken else {
-            completion(EbayListingResult(
-                success: false,
-                listingId: nil,
-                listingURL: nil,
-                error: "No access token"
-            ))
-            return
-        }
-        
-        let endpoint = "\(sellAPIBase)/sell/inventory/v1/offer"
-        
-        guard let url = URL(string: endpoint) else {
-            completion(EbayListingResult(
-                success: false,
-                listingId: nil,
-                listingURL: nil,
-                error: "Invalid offer endpoint URL"
-            ))
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let offer: [String: Any] = [
-            "sku": listingData.sku,
-            "marketplaceId": "EBAY_US",
-            "format": "FIXED_PRICE",
-            "availableQuantity": listingData.quantity,
-            "categoryId": listingData.categoryId,
-            "listingDuration": listingData.listingDuration,
-            "listingPolicies": [
-                "fulfillmentPolicyId": "default",
-                "paymentPolicyId": "default",
-                "returnPolicyId": "default"
-            ],
-            "pricingSummary": [
-                "price": [
-                    "value": String(format: "%.2f", listingData.price),
-                    "currency": "USD"
-                ]
-            ]
-        ]
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: offer, options: .prettyPrinted)
-        } catch {
-            completion(EbayListingResult(
-                success: false,
-                listingId: nil,
-                listingURL: nil,
-                error: "Failed to serialize offer data"
-            ))
-            return
-        }
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    completion(EbayListingResult(
-                        success: false,
-                        listingId: nil,
-                        listingURL: nil,
-                        error: "Offer creation failed: \(error.localizedDescription)"
-                    ))
-                    return
-                }
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    completion(EbayListingResult(
-                        success: false,
-                        listingId: nil,
-                        listingURL: nil,
-                        error: "Invalid offer response"
-                    ))
-                    return
-                }
-                
-                if httpResponse.statusCode == 201 {
-                    if let data = data,
-                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let offerId = json["offerId"] as? String {
-                        
-                        // Publish the offer to create the actual listing
-                        self.publishOffer(offerId: offerId, completion: completion)
-                    } else {
-                        completion(EbayListingResult(
-                            success: true,
-                            listingId: listingData.sku,
-                            listingURL: nil,
-                            error: nil
-                        ))
-                    }
-                } else {
-                    let errorMessage = String(data: data ?? Data(), encoding: .utf8) ?? "Unknown error"
-                    completion(EbayListingResult(
-                        success: false,
-                        listingId: nil,
-                        listingURL: nil,
-                        error: "Offer creation failed with status \(httpResponse.statusCode): \(errorMessage)"
-                    ))
-                }
-            }
-        }.resume()
-    }
-    
-    // MARK: - Publish Offer
-    private func publishOffer(
-        offerId: String,
-        completion: @escaping (EbayListingResult) -> Void
-    ) {
-        
-        guard let accessToken = ebayAuthManager.accessToken else {
-            completion(EbayListingResult(
-                success: false,
-                listingId: nil,
-                listingURL: nil,
-                error: "No access token"
-            ))
-            return
-        }
-        
-        let endpoint = "\(sellAPIBase)/sell/inventory/v1/offer/\(offerId)/publish"
-        
-        guard let url = URL(string: endpoint) else {
-            completion(EbayListingResult(
-                success: false,
-                listingId: nil,
-                listingURL: nil,
-                error: "Invalid publish endpoint URL"
-            ))
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    completion(EbayListingResult(
-                        success: false,
-                        listingId: nil,
-                        listingURL: nil,
-                        error: "Publish failed: \(error.localizedDescription)"
-                    ))
-                    return
-                }
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    completion(EbayListingResult(
-                        success: false,
-                        listingId: nil,
-                        listingURL: nil,
-                        error: "Invalid publish response"
-                    ))
-                    return
-                }
-                
-                if httpResponse.statusCode == 201 {
-                    if let data = data,
-                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let listingId = json["listingId"] as? String {
-                        
-                        let listingURL = "https://www.ebay.com/itm/\(listingId)"
-                        
-                        completion(EbayListingResult(
-                            success: true,
-                            listingId: listingId,
-                            listingURL: listingURL,
-                            error: nil
-                        ))
-                    } else {
-                        completion(EbayListingResult(
-                            success: true,
-                            listingId: offerId,
-                            listingURL: nil,
-                            error: nil
-                        ))
-                    }
-                } else {
-                    let errorMessage = String(data: data ?? Data(), encoding: .utf8) ?? "Unknown error"
-                    completion(EbayListingResult(
-                        success: false,
-                        listingId: nil,
-                        listingURL: nil,
-                        error: "Publish failed with status \(httpResponse.statusCode): \(errorMessage)"
-                    ))
-                }
-            }
-        }.resume()
-    }
-    
-    // MARK: - Helper Methods
-    private func generateSKU(for item: InventoryItem) -> String {
-        let timestamp = Int(Date().timeIntervalSince1970)
-        let cleanName = item.name.replacingOccurrences(of: " ", with: "_")
-            .replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "", options: .regularExpression)
-        return "RESELL_\(cleanName)_\(timestamp)"
-    }
-    
-    private func getCategoryId(for category: String) -> String {
-        return Configuration.ebayCategoryMappings[category] ?? "267" // Default to Everything Else
-    }
-    
-    private func getConditionId(for condition: EbayCondition) -> String {
-        return Configuration.ebayConditionMappings[condition.description] ?? "3000" // Default to Good
-    }
-    
-    private func buildShippingDetails() -> EbayShippingDetails {
-        return EbayShippingDetails(
-            cost: Configuration.defaultShippingCost,
-            service: "USPSGround",
-            handlingTime: 1
-        )
-    }
-    
-    private func buildReturnPolicy() -> EbayReturnPolicy {
-        return EbayReturnPolicy(
-            returnsAccepted: true,
-            returnPeriod: 30,
-            shippingCostPaidBy: "Buyer"
-        )
-    }
-    
-    private func buildListingDescription(analysis: AnalysisResult) -> String {
-        return """
-        \(analysis.productDescription)
-        
-        Condition: \(analysis.ebayCondition.description)
-        Brand: \(analysis.brand)
-        Size: \(analysis.identificationResult.size)
-        Color: \(analysis.identificationResult.colorway)
-        
-        \(analysis.sellingPoints.joined(separator: "\n• "))
-        
-        Shipped with care from our verified reseller.
+        Categories should be: "Clothing", "Shoes", "Electronics", "Accessories", "Home", "Collectibles", "Books", "Toys", "Sports", "Other"
         """
-    }
-    
-    private func handleListingCompletion(
-        result: EbayListingResult,
-        completion: @escaping (EbayListingResult) -> Void
-    ) {
-        isListing = false
-        listingResults.append(result)
         
-        if result.success {
-            listingProgress = "✅ Listed successfully!"
-            print("✅ eBay listing created: \(result.listingId ?? "No ID")")
-        } else {
-            listingProgress = "❌ Listing failed"
-            print("❌ eBay listing failed: \(result.error ?? "Unknown error")")
-        }
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": "You are a product identification expert. Always respond with valid JSON only."],
+            ["role": "user", "content": prompt]
+        ]
         
-        completion(result)
-    }
-}
-
-// MARK: - eBay Image Upload Service
-class EbayImageUploadService {
-    
-    func uploadImages(
-        _ images: [UIImage],
-        accessToken: String,
-        completion: @escaping ([String], String?) -> Void
-    ) {
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o",
+            "messages": messages,
+            "max_tokens": 500,
+            "temperature": 0.1
+        ]
         
-        var uploadedURLs: [String] = []
-        var uploadErrors: [String] = []
-        let uploadGroup = DispatchGroup()
-        
-        for (index, image) in images.enumerated() {
-            uploadGroup.enter()
+        do {
+            let response = try await makeOpenAIRequest(body: requestBody)
+            let choices = response["choices"] as? [[String: Any]] ?? []
+            let firstChoice = choices.first
+            let message = firstChoice?["message"] as? [String: Any]
+            let content = message?["content"] as? String ?? "{}"
             
-            uploadImage(image, index: index, accessToken: accessToken) { imageURL, error in
-                if let imageURL = imageURL {
-                    uploadedURLs.append(imageURL)
-                } else if let error = error {
-                    uploadErrors.append(error)
-                }
-                uploadGroup.leave()
-            }
-        }
-        
-        uploadGroup.notify(queue: .main) {
-            if uploadedURLs.isEmpty {
-                completion([], uploadErrors.first ?? "All image uploads failed")
-            } else {
-                completion(uploadedURLs, nil)
-            }
-        }
-    }
-    
-    private func uploadImage(
-        _ image: UIImage,
-        index: Int,
-        accessToken: String,
-        completion: @escaping (String?, String?) -> Void
-    ) {
-        
-        // For now, create mock URLs since eBay image upload requires specific setup
-        // In production, this would upload to eBay's image hosting service
-        let mockURL = "https://i.ebayimg.com/images/g/resell-image-\(index)-\(UUID().uuidString.prefix(8)).jpg"
-        
-        // Simulate upload delay
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-            completion(mockURL, nil)
-        }
-    }
-}
-
-// MARK: - Data Structures
-struct EbayListingResult {
-    let success: Bool
-    let listingId: String?
-    let listingURL: String?
-    let error: String?
-}
-
-struct EbayListingData {
-    let sku: String
-    let title: String
-    let description: String
-    let categoryId: String
-    let conditionId: String
-    let conditionDescription: String
-    let price: Double
-    let quantity: Int
-    let imageURLs: [String]
-    let shippingDetails: EbayShippingDetails
-    let returnPolicy: EbayReturnPolicy
-    let listingDuration: String
-    let brand: String
-    let size: String
-    let color: String
-}
-
-struct EbayShippingDetails {
-    let cost: Double
-    let service: String
-    let handlingTime: Int
-}
-
-struct EbayReturnPolicy {
-    let returnsAccepted: Bool
-    let returnPeriod: Int
-    let shippingCostPaidBy: String
-}
-
-// MARK: - AnalysisResult Extension for Fallback
-extension AnalysisResult {
-    static func createFallback() -> AnalysisResult {
-        return AnalysisResult(
-            identificationResult: PrecisionIdentificationResult(
-                productName: "Unknown Item",
-                brand: "Unknown",
-                model: "",
-                year: "",
-                size: "N/A",
-                colorway: "Mixed",
-                retailPrice: 0.0,
-                category: "Other",
-                subcategory: "",
-                authenticity: AuthenticityCheck(
-                    isAuthentic: true,
-                    confidence: 0.5,
-                    redFlags: [],
-                    authenticityMarkers: []
+            if let data = content.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                
+                let conditionString = json["condition"] as? String ?? "Good"
+                let condition = EbayCondition.allCases.first { $0.rawValue == conditionString } ?? .good
+                
+                return ProductInfo(
+                    name: json["name"] as? String ?? "Unknown Item",
+                    brand: json["brand"] as? String ?? "",
+                    category: json["category"] as? String ?? "Other",
+                    condition: condition,
+                    model: json["model"] as? String ?? "",
+                    size: json["size"] as? String ?? "",
+                    color: json["color"] as? String ?? "",
+                    year: json["year"] as? String ?? "",
+                    confidence: json["confidence"] as? Double ?? 0.5
                 )
-            ),
-            marketData: EbayMarketData(
-                soldListings: [],
-                priceRange: MarketPriceRange(min: 0, max: 100, average: 50),
-                averageSaleTime: 14,
-                demandLevel: .medium,
-                searchKeywords: ["unknown", "item"]
-            ),
-            images: [],
+            }
+        } catch {
+            print("Product identification error: \(error)")
+        }
+        
+        // Fallback
+        return ProductInfo(
+            name: "Unknown Item",
+            brand: "",
             category: "Other",
-            brand: "Unknown",
-            productDescription: "Item analysis failed - manual review needed",
-            ebayTitle: "Unknown Item - Manual Review Needed",
-            ebayCondition: EbayCondition.good,
-            realisticPrice: 50.0,
-            quickSalePrice: 40.0,
-            maxProfitPrice: 65.0,
-            sellingPoints: ["Manual review needed"],
-            roi: ROICalculation(
-                buyPrice: 25.0,
-                sellPrice: 50.0,
-                fees: 8.0,
-                profit: 17.0,
-                roiPercentage: 68.0
-            ),
-            priceHistory: [],
+            condition: .good,
+            model: "",
+            size: "",
+            color: "",
+            year: "",
             confidence: 0.3
         )
     }
+    
+    // MARK: - Market Research
+    private func researchMarket(for product: ProductInfo) async -> MarketData? {
+        // Build search query
+        let searchTerms = [product.name, product.brand, product.model]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        
+        guard !searchTerms.isEmpty else { return nil }
+        
+        // Search eBay sold listings
+        let soldListings = await searchEbaySoldListings(query: searchTerms, condition: product.condition)
+        
+        guard !soldListings.isEmpty else { return nil }
+        
+        // Calculate price statistics
+        let prices = soldListings.map { $0.price }
+        let averagePrice = prices.reduce(0, +) / Double(prices.count)
+        
+        let sortedPrices = prices.sorted()
+        let lowest = sortedPrices.first ?? 0
+        let highest = sortedPrices.last ?? 0
+        let median = sortedPrices.count > 0 ? sortedPrices[sortedPrices.count / 2] : 0
+        
+        let priceRange = EbayPriceRange(
+            lowest: lowest,
+            highest: highest,
+            average: averagePrice,
+            median: median,
+            sampleSize: prices.count
+        )
+        
+        return MarketData(
+            averagePrice: averagePrice,
+            priceRange: priceRange,
+            soldListings: soldListings,
+            totalSold: soldListings.count,
+            averageDaysToSell: nil,
+            seasonalTrends: nil,
+            competitorAnalysis: nil,
+            demandIndicators: generateDemandIndicators(from: soldListings),
+            lastUpdated: Date()
+        )
+    }
+    
+    // MARK: - eBay Sold Listings Search
+    private func searchEbaySoldListings(query: String, condition: EbayCondition) async -> [EbaySoldListing] {
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        
+        let urlString = """
+        \(Configuration.ebayFindingAPIBase)?OPERATION-NAME=findCompletedItems&SERVICE-VERSION=1.0.0&SECURITY-APPNAME=\(Configuration.ebayAPIKey)&RESPONSE-DATA-FORMAT=JSON&REST-PAYLOAD&keywords=\(encodedQuery)&itemFilter(0).name=SoldItemsOnly&itemFilter(0).value=true&itemFilter(1).name=ListingType&itemFilter(1).value(0)=FixedPrice&itemFilter(1).value(1)=Auction&sortOrder=EndTimeSoonest&paginationInput.entriesPerPage=25
+        """
+        
+        guard let url = URL(string: urlString) else { return [] }
+        
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            
+            if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let response = json["findCompletedItemsResponse"] as? [[String: Any]],
+               let firstResponse = response.first,
+               let searchResult = firstResponse["searchResult"] as? [[String: Any]],
+               let firstResult = searchResult.first,
+               let items = firstResult["item"] as? [[String: Any]] {
+                
+                var soldListings: [EbaySoldListing] = []
+                
+                for item in items {
+                    if let title = (item["title"] as? [String])?.first,
+                       let sellingStatus = (item["sellingStatus"] as? [[String: Any]])?.first,
+                       let priceInfo = (sellingStatus["currentPrice"] as? [[String: Any]])?.first,
+                       let priceString = priceInfo["__value__"] as? String,
+                       let price = Double(priceString) {
+                        
+                        let conditionInfo = (item["condition"] as? [[String: Any]])?.first
+                        let conditionName = (conditionInfo?["conditionDisplayName"] as? [String])?.first ?? "Used"
+                        
+                        let shippingInfo = (item["shippingInfo"] as? [[String: Any]])?.first
+                        let shippingCostInfo = (shippingInfo?["shippingServiceCost"] as? [[String: Any]])?.first
+                        let shippingCostString = shippingCostInfo?["__value__"] as? String
+                        let shippingCost = shippingCostString != nil ? Double(shippingCostString!) : nil
+                        
+                        let listingInfo = (item["listingInfo"] as? [[String: Any]])?.first
+                        let endTime = (listingInfo?["endTime"] as? [String])?.first ?? ""
+                        
+                        let formatter = ISO8601DateFormatter()
+                        let soldDate = formatter.date(from: endTime) ?? Date()
+                        
+                        let soldListing = EbaySoldListing(
+                            title: title,
+                            price: price,
+                            condition: conditionName,
+                            soldDate: soldDate,
+                            shippingCost: shippingCost,
+                            bestOffer: false,
+                            auction: false,
+                            watchers: nil
+                        )
+                        
+                        soldListings.append(soldListing)
+                    }
+                }
+                
+                return soldListings
+            }
+        } catch {
+            print("eBay search error: \(error)")
+        }
+        
+        return []
+    }
+    
+    // MARK: - Pricing Calculation
+    private func calculatePricing(marketData: MarketData?, condition: EbayCondition) -> PricingInfo {
+        guard let marketData = marketData else {
+            return PricingInfo(
+                suggestedPrice: 10.0,
+                competitionLevel: .low,
+                strategy: .market
+            )
+        }
+        
+        let basePrice = marketData.averagePrice
+        let conditionMultiplier = condition.priceMultiplier
+        let adjustedPrice = basePrice * conditionMultiplier
+        
+        // Determine competition level based on number of sold listings
+        let competitionLevel: CompetitionLevel
+        switch marketData.totalSold {
+        case 0...5: competitionLevel = .low
+        case 6...15: competitionLevel = .moderate
+        case 16...30: competitionLevel = .high
+        default: competitionLevel = .veryHigh
+        }
+        
+        // Determine pricing strategy
+        let strategy: PricingStrategy = competitionLevel == .low ? .premium : .market
+        
+        return PricingInfo(
+            suggestedPrice: adjustedPrice * strategy.priceMultiplier,
+            competitionLevel: competitionLevel,
+            strategy: strategy
+        )
+    }
+    
+    // MARK: - Listing Generation
+    private func generateListing(productInfo: ProductInfo, marketData: MarketData?, pricing: PricingInfo) -> ListingInfo {
+        let title = generateTitle(product: productInfo)
+        let description = generateDescription(product: productInfo, marketData: marketData)
+        let keywords = generateKeywords(product: productInfo)
+        let tips = generateListingTips(product: productInfo, pricing: pricing)
+        
+        return ListingInfo(
+            title: title,
+            description: description,
+            keywords: keywords,
+            tips: tips
+        )
+    }
+    
+    // MARK: - Helper Functions
+    private func updateProgress(step: Int) async {
+        await MainActor.run {
+            self.analysisProgress = Double(step) / Double(self.steps.count - 1)
+            self.currentStep = step < self.steps.count ? self.steps[step] : "Completing analysis..."
+        }
+        
+        // Add small delay for UI feedback
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+    }
+    
+    private func makeOpenAIRequest(body: [String: Any]) async throws -> [String: Any] {
+        guard let url = URL(string: Configuration.openAIEndpoint) else {
+            throw NSError(domain: "Invalid URL", code: 0)
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(Configuration.openAIKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw NSError(domain: "API Error", code: 0)
+        }
+        
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(domain: "Invalid JSON", code: 0)
+        }
+        
+        return json
+    }
+    
+    private func generateDemandIndicators(from listings: [EbaySoldListing]) -> [String] {
+        var indicators: [String] = []
+        
+        if listings.count > 10 {
+            indicators.append("High sales volume")
+        }
+        
+        let recentSales = listings.filter {
+            Calendar.current.dateInterval(of: .weekOfYear, for: $0.soldDate)?.contains(Date()) ?? false
+        }
+        
+        if recentSales.count > 3 {
+            indicators.append("Active current demand")
+        }
+        
+        return indicators
+    }
+    
+    private func generateTitle(product: ProductInfo) -> String {
+        var components: [String] = []
+        
+        if !product.brand.isEmpty {
+            components.append(product.brand)
+        }
+        
+        components.append(product.name)
+        
+        if !product.size.isEmpty {
+            components.append("Size \(product.size)")
+        }
+        
+        if !product.color.isEmpty {
+            components.append(product.color)
+        }
+        
+        components.append(product.condition.rawValue)
+        
+        return components.joined(separator: " ")
+    }
+    
+    private func generateDescription(product: ProductInfo, marketData: MarketData?) -> String {
+        var description = "Excellent \(product.name)"
+        
+        if !product.brand.isEmpty {
+            description += " by \(product.brand)"
+        }
+        
+        description += " in \(product.condition.rawValue) condition."
+        
+        if !product.model.isEmpty {
+            description += " Model: \(product.model)."
+        }
+        
+        if !product.size.isEmpty {
+            description += " Size: \(product.size)."
+        }
+        
+        description += "\n\nFast shipping with tracking. Returns accepted."
+        
+        return description
+    }
+    
+    private func generateKeywords(product: ProductInfo) -> [String] {
+        var keywords: [String] = []
+        
+        if !product.brand.isEmpty {
+            keywords.append(product.brand.lowercased())
+        }
+        
+        keywords.append(contentsOf: product.name.lowercased().components(separatedBy: " "))
+        
+        if !product.model.isEmpty {
+            keywords.append(product.model.lowercased())
+        }
+        
+        keywords.append(product.category.lowercased())
+        keywords.append(product.condition.rawValue.lowercased())
+        
+        return Array(Set(keywords)).filter { $0.count > 2 }
+    }
+    
+    private func generateListingTips(product: ProductInfo, pricing: PricingInfo) -> [String] {
+        var tips: [String] = []
+        
+        switch pricing.competitionLevel {
+        case .low:
+            tips.append("Low competition - you can price at premium")
+        case .moderate:
+            tips.append("Moderate competition - price competitively")
+        case .high:
+            tips.append("High competition - consider quick sale pricing")
+        case .veryHigh:
+            tips.append("Very high competition - focus on great photos and description")
+        }
+        
+        if product.confidence < 0.7 {
+            tips.append("Consider getting more product details for better listing")
+        }
+        
+        tips.append("Use all available photo slots")
+        tips.append("Research similar sold listings regularly")
+        
+        return tips
+    }
+}
+
+// MARK: - Supporting Structures
+struct ImageAnalysisResult {
+    let description: String
+    let confidence: Double
+}
+
+struct ProductInfo {
+    let name: String
+    let brand: String
+    let category: String
+    let condition: EbayCondition
+    let model: String
+    let size: String
+    let color: String
+    let year: String
+    let confidence: Double
+}
+
+struct PricingInfo {
+    let suggestedPrice: Double
+    let competitionLevel: CompetitionLevel
+    let strategy: PricingStrategy
+}
+
+struct ListingInfo {
+    let title: String
+    let description: String
+    let keywords: [String]
+    let tips: [String]
 }

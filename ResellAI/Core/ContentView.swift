@@ -1,59 +1,34 @@
-import SwiftUI
-import UIKit
-import AVFoundation
-import PhotosUI
+//
+//  ContentView.swift
+//  ResellAI
+//
+//  Fixed ContentView with Correct AIService Integration
+//
 
-// MARK: - Focused Business Content View
+import SwiftUI
+
 struct ContentView: View {
-    @StateObject private var inventoryManager = InventoryManager()
-    @StateObject private var aiService = AIService()
-    @StateObject private var googleSheetsService = GoogleSheetsService()
-    @StateObject private var ebayListingService = EbayListingService()
-    
     var body: some View {
-        VStack(spacing: 0) {
-            // Business Header
-            BusinessHeader()
-            
-            // Main Business Content
-            BusinessTabView()
-                .environmentObject(inventoryManager)
-                .environmentObject(aiService)
-                .environmentObject(googleSheetsService)
-                .environmentObject(ebayListingService)
-        }
-        .onAppear {
-            initializeServices()
-        }
-    }
-    
-    private func initializeServices() {
-        Configuration.validateConfiguration()
-        googleSheetsService.authenticate()
-        print("🚀 ResellAI Ready - \(Configuration.configurationStatus)")
+        BusinessTabView()
+            .environmentObject(InventoryManager())
+            .environmentObject(AIService())
+            .environmentObject(GoogleSheetsService())
+            .environmentObject(EbayListingService())
     }
 }
 
-// MARK: - Business Header Design
+// MARK: - Business Header
 struct BusinessHeader: View {
     var body: some View {
-        VStack(spacing: 0) {
-            // Top section with logo and status
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("ResellAI")
-                        .font(.system(size: 28, weight: .bold, design: .default))
-                        .foregroundColor(.primary)
-                    
-                    Text("Ultimate Reselling Business Tool")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.secondary)
-                }
+                Text("ResellAI")
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundColor(.primary)
                 
                 Spacer()
                 
-                // Status indicator
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     Circle()
                         .fill(Configuration.isFullyConfigured ? Color.green : Color.orange)
                         .frame(width: 8, height: 8)
@@ -161,11 +136,11 @@ struct BusinessAnalysisView: View {
                             )
                         }
                         
-                        // Progress indicator
+                        // Progress indicator - FIXED
                         if aiService.isAnalyzing {
                             BusinessProgressCard(
-                                progress: Double(aiService.currentStep) / Double(aiService.totalSteps),
-                                message: aiService.analysisProgress,
+                                progress: aiService.analysisProgress,
+                                message: aiService.currentStep,
                                 onCancel: { resetAnalysis() }
                             )
                         }
@@ -192,8 +167,8 @@ struct BusinessAnalysisView: View {
                         onReset: { resetAnalysis() }
                     )
                     
-                    // Results
-                    if let result = analysisResult {
+                    // Results - FIXED
+                    if let result = aiService.analysisResult {
                         CleanAnalysisResultView(analysis: result) {
                             showingItemForm = true
                         } onDirectList: {
@@ -205,47 +180,49 @@ struct BusinessAnalysisView: View {
                 .padding(.bottom, 20)
             }
             .navigationBarHidden(true)
-            .background(Color(.systemGroupedBackground))
         }
         .sheet(isPresented: $showingCamera) {
-            CameraView { photos in
-                appendImages(photos)
+            CameraView { images in
+                handleNewImages(images)
             }
         }
         .sheet(isPresented: $showingPhotoLibrary) {
-            PhotoLibraryPicker { photos in
-                appendImages(photos)
+            PhotoLibraryView { images in
+                handleNewImages(images)
             }
         }
         .sheet(isPresented: $showingItemForm) {
-            if let result = analysisResult {
-                ItemFormView(analysis: result, onSave: saveItem)
-                    .environmentObject(inventoryManager)
+            if let result = aiService.analysisResult {
+                ItemFormView(analysisResult: result) { item in
+                    saveItem(item)
+                }
             }
         }
         .sheet(isPresented: $showingDirectListing) {
-            if let result = analysisResult {
-                DirectEbayListingView(analysis: result)
-                    .environmentObject(ebayListingService)
+            if let result = aiService.analysisResult {
+                ListingView(
+                    item: createInventoryItem(from: result),
+                    analysisResult: result,
+                    images: capturedImages
+                )
             }
         }
         .sheet(isPresented: $showingBarcodeLookup) {
-            BarcodeScannerView(scannedCode: $scannedBarcode)
-                .onDisappear {
-                    if let barcode = scannedBarcode {
-                        analyzeBarcode(barcode)
-                    }
-                }
+            BarcodeScannerView { barcode in
+                scannedBarcode = barcode
+                analyzeBarcode(barcode)
+            }
         }
     }
     
-    // Performance optimized methods
-    private func appendImages(_ photos: [UIImage]) {
-        let optimizedPhotos = photos.compactMap { image -> UIImage? in
+    // MARK: - Helper Methods
+    private func handleNewImages(_ images: [UIImage]) {
+        let optimizedPhotos = images.compactMap { image in
             return optimizeImage(image)
         }
         capturedImages.append(contentsOf: optimizedPhotos)
-        analysisResult = nil
+        // Reset analysis result when new images are added
+        aiService.analysisResult = nil
     }
     
     private func optimizeImage(_ image: UIImage) -> UIImage? {
@@ -267,35 +244,53 @@ struct BusinessAnalysisView: View {
         return optimizedImage
     }
     
+    // FIXED - Now uses async/await pattern
     private func analyzeItem() {
         guard !capturedImages.isEmpty else { return }
         
-        aiService.analyzeItem(capturedImages) { result in
-            DispatchQueue.main.async {
-                self.analysisResult = result
-            }
+        Task {
+            await aiService.analyzeItem(images: capturedImages)
         }
     }
     
     private func analyzeBarcode(_ barcode: String) {
-        aiService.analyzeBarcode(barcode, images: capturedImages) { result in
-            DispatchQueue.main.async {
-                self.analysisResult = result
-            }
-        }
+        // For now, just analyze the images we have
+        analyzeItem()
     }
     
+    // FIXED - Proper method calls
     private func saveItem(_ item: InventoryItem) {
-        let savedItem = inventoryManager.addItem(item)
-        googleSheetsService.uploadItem(savedItem)
+        inventoryManager.addItem(item)
+        Task {
+            await googleSheetsService.uploadItem(item)
+        }
         showingItemForm = false
         resetAnalysis()
     }
     
     private func resetAnalysis() {
         capturedImages = []
-        analysisResult = nil
+        aiService.analysisResult = nil
         scannedBarcode = nil
+    }
+    
+    private func createInventoryItem(from result: AnalysisResult) -> InventoryItem {
+        return InventoryItem(
+            itemNumber: inventoryManager.items.count + 1,
+            name: result.productName,
+            category: result.category,
+            purchasePrice: 0.0,
+            suggestedPrice: result.estimatedValue,
+            source: "Analysis",
+            condition: result.condition.rawValue,
+            title: result.suggestedTitle,
+            description: result.description,
+            keywords: result.suggestedKeywords,
+            status: .analyzed,
+            dateAdded: Date(),
+            brand: result.brand,
+            ebayCondition: result.condition
+        )
     }
 }
 
@@ -307,30 +302,24 @@ struct BusinessWarningBanner: View {
     let onAction: () -> Void
     
     var body: some View {
-        HStack(spacing: 12) {
+        HStack {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.orange)
             
             Text(message)
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.primary)
             
             Spacer()
             
             Button(actionText, action: onAction)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.orange)
+                .foregroundColor(.blue)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding()
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.orange.opacity(0.1))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
         )
     }
 }
@@ -343,108 +332,48 @@ struct BusinessProgressCard: View {
     var body: some View {
         VStack(spacing: 16) {
             HStack {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Analyzing...")
-                        .font(.system(size: 20, weight: .bold))
-                    Text(message)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.secondary)
-                }
-                
+                Text("Analyzing Item")
+                    .font(.system(size: 18, weight: .bold))
                 Spacer()
-                
                 Button("Cancel", action: onCancel)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.red)
             }
             
-            ProgressView(value: progress)
-                .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
-                .scaleEffect(y: 2)
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 2)
-        )
-    }
-}
-
-struct BusinessPhotoGallery: View {
-    @Binding var images: [UIImage]
-    @State private var selectedIndex = 0
-    
-    var body: some View {
-        VStack(spacing: 16) {
-            // Main photo
-            TabView(selection: $selectedIndex) {
-                ForEach(0..<images.count, id: \.self) { index in
-                    Image(uiImage: images[index])
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxHeight: 280)
-                        .cornerRadius(16)
-                        .clipped()
-                        .tag(index)
-                }
-            }
-            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .automatic))
-            .frame(height: 300)
-            
-            // Controls
-            HStack {
-                Text("\(images.count) photo\(images.count == 1 ? "" : "s")")
-                    .font(.system(size: 16, weight: .medium))
+            VStack(spacing: 8) {
+                ProgressView(value: progress)
+                    .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
+                
+                Text(message)
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.secondary)
-                
-                Spacer()
-                
-                Button(action: deleteCurrentPhoto) {
-                    Label("Delete", systemImage: "trash")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.red)
-                }
             }
-            .padding(.horizontal, 4)
         }
-        .padding(20)
+        .padding()
         .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 2)
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemGray6))
         )
-    }
-    
-    private func deleteCurrentPhoto() {
-        if images.count > 1 {
-            images.remove(at: selectedIndex)
-            if selectedIndex >= images.count {
-                selectedIndex = images.count - 1
-            }
-        } else {
-            images.removeAll()
-            selectedIndex = 0
-        }
     }
 }
 
 struct BusinessPhotoPlaceholder: View {
-    let onTakePhotos: () -> Void
+    let onTap: () -> Void
     
     var body: some View {
-        Button(action: onTakePhotos) {
-            VStack(spacing: 20) {
+        Button(action: onTap) {
+            VStack(spacing: 16) {
                 Image(systemName: "camera.fill")
-                    .font(.system(size: 48, weight: .ultraLight))
-                    .foregroundColor(.accentColor)
+                    .font(.system(size: 48, weight: .regular))
+                    .foregroundColor(.secondary)
                 
                 VStack(spacing: 8) {
                     Text("Take Photos")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.primary)
                     
-                    Text("Multiple angles improve accuracy")
-                        .font(.system(size: 16, weight: .medium))
+                    Text("Tap to capture photos of your item")
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                 }
@@ -453,17 +382,61 @@ struct BusinessPhotoPlaceholder: View {
             .frame(height: 200)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(
-                        style: StrokeStyle(lineWidth: 2, dash: [8, 6])
-                    )
-                    .foregroundColor(.accentColor.opacity(0.3))
-            )
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.accentColor.opacity(0.03))
+                    .stroke(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 2, dash: [8, 8]))
             )
         }
         .buttonStyle(ScaleButtonStyle())
+    }
+}
+
+struct BusinessPhotoGallery: View {
+    @Binding var images: [UIImage]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Photos (\(images.count))")
+                    .font(.system(size: 18, weight: .bold))
+                Spacer()
+                Button("Clear All") {
+                    images.removeAll()
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.red)
+            }
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(images.indices, id: \.self) { index in
+                        ZStack(alignment: .topTrailing) {
+                            Image(uiImage: images[index])
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 120, height: 120)
+                                .clipped()
+                                .cornerRadius(12)
+                            
+                            Button {
+                                images.remove(at: index)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.white)
+                                    .background(Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                            .offset(x: -4, y: 4)
+                        }
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemGray6))
+        )
     }
 }
 
@@ -484,7 +457,7 @@ struct BusinessActionButtons: View {
                 BusinessActionButton(
                     icon: "camera.fill",
                     title: "Camera",
-                    color: .accentColor,
+                    color: .blue,
                     action: onCamera
                 )
                 
@@ -564,6 +537,15 @@ struct BusinessActionButton: View {
             )
         }
         .buttonStyle(ScaleButtonStyle())
+    }
+}
+
+// MARK: - Scale Button Style
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 
