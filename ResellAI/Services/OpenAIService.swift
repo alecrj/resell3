@@ -2,25 +2,25 @@
 //  OpenAIService.swift
 //  ResellAI
 //
-//  Fixed OpenAI Service with New MarketDataService
+//  OpenAI Service with Real Market Data Integration
 //
 
 import SwiftUI
 import Foundation
 import Vision
 
-// MARK: - Fixed OpenAI Vision Service with Production Market Data
+// MARK: - OpenAI Vision Service with Real Market Data Integration
 class WorkingOpenAIService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
     @Published var currentStep = 0
-    @Published var totalSteps = 8
+    @Published var totalSteps = 6
     
     private let openAIAPIKey = Configuration.openAIKey
     private let marketDataService: MarketDataService
     
     init() {
-        print("🤖 OpenAI Vision Service initialized with production market data")
+        print("🤖 OpenAI Vision Service initialized with real market data")
         self.marketDataService = MarketDataService()
         validateConfiguration()
     }
@@ -33,7 +33,7 @@ class WorkingOpenAIService: ObservableObject {
         }
     }
     
-    // MARK: - Main Analysis Function with Production Market Data
+    // MARK: - Main Analysis Function with Real Market Data
     func analyzeItem(images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             print("❌ No images provided for analysis")
@@ -53,72 +53,103 @@ class WorkingOpenAIService: ObservableObject {
             self.analysisProgress = "Starting analysis..."
         }
         
+        print("🔍 Starting item analysis with \(images.count) images")
+        
         // Step 1: Convert images to base64
         updateProgress(1, "Processing images...")
         let base64Images = convertImagesToBase64(images)
         
-        // Step 2: Product identification optimized for market data
-        updateProgress(2, "Identifying product...")
+        // Step 2: Product identification optimized for market search
+        updateProgress(2, "Identifying product with GPT-4...")
         identifyProductForMarketSearch(base64Images: base64Images) { [weak self] identification in
             guard let self = self, let identification = identification else {
                 DispatchQueue.main.async {
                     self?.isAnalyzing = false
+                    self?.analysisProgress = "Product identification failed"
                     completion(nil)
                 }
                 return
             }
             
-            // Step 3-6: Market research with new service
-            self.updateProgress(3, "Searching market data...")
+            print("✅ Product identified: \(identification.exactModelName)")
+            print("  • Brand: \(identification.brand)")
+            print("  • Size: \(identification.size)")
+            print("  • Style Code: \(identification.styleCode)")
+            print("  • Confidence: \(String(format: "%.1f", identification.confidence * 100))%")
+            
+            // Step 3: Get real market data
+            self.updateProgress(3, "Searching real eBay sold comps...")
             self.marketDataService.researchProduct(
                 identification: identification,
-                condition: EbayCondition.good
+                condition: EbayCondition.good  // Default condition, will be refined
             ) { marketAnalysis in
                 
-                guard let marketAnalysis = marketAnalysis else {
-                    // Fallback analysis if market research fails
-                    let fallbackResult = self.createFallbackAnalysis(identification: identification, images: images)
+                // Step 4: Process market data
+                self.updateProgress(4, "Processing market analysis...")
+                
+                if let marketAnalysis = marketAnalysis {
+                    let soldCount = marketAnalysis.marketData.soldListings.count
+                    
+                    if soldCount > 0 {
+                        print("✅ Real market data found:")
+                        print("  • Sold Listings: \(soldCount)")
+                        print("  • Average Price: $\(String(format: "%.2f", marketAnalysis.marketData.priceRange.average))")
+                        print("  • Price Range: $\(String(format: "%.2f", marketAnalysis.pricingRecommendation.priceRange.min)) - $\(String(format: "%.2f", marketAnalysis.pricingRecommendation.priceRange.max))")
+                        
+                        self.updateProgress(5, "Found \(soldCount) real eBay sales!")
+                    } else {
+                        print("⚠️ No market data found - using estimates")
+                        self.updateProgress(5, "No market data found - using estimates")
+                    }
+                    
+                    // Step 5: Finalize analysis
+                    self.updateProgress(6, "Finalizing analysis...")
+                    
+                    let finalResult = AnalysisResult(
+                        identificationResult: identification,
+                        marketAnalysis: marketAnalysis,
+                        ebayCondition: marketAnalysis.conditionAssessment.detectedCondition,
+                        ebayPricing: marketAnalysis.pricingRecommendation,
+                        soldListings: marketAnalysis.marketData.soldListings,
+                        confidence: marketAnalysis.confidence,
+                        images: images
+                    )
+                    
                     DispatchQueue.main.async {
                         self.isAnalyzing = false
-                        self.analysisProgress = "Analysis complete (limited data)"
+                        
+                        if soldCount > 0 {
+                            self.analysisProgress = "✅ Analysis complete with \(soldCount) real sales!"
+                        } else {
+                            self.analysisProgress = "⚠️ Analysis complete (no market data found)"
+                        }
+                        
+                        print("✅ Final Analysis Results:")
+                        print("  • Product: \(identification.exactModelName)")
+                        print("  • Brand: \(identification.brand)")
+                        print("  • Market Sales: \(soldCount)")
+                        print("  • Recommended Price: $\(String(format: "%.2f", marketAnalysis.pricingRecommendation.recommendedPrice))")
+                        print("  • Quick Sale: $\(String(format: "%.2f", marketAnalysis.pricingRecommendation.quickSalePrice))")
+                        print("  • Market Confidence: \(String(format: "%.1f", marketAnalysis.confidence.overall * 100))%")
+                        
+                        completion(finalResult)
+                    }
+                } else {
+                    // Complete fallback if market analysis fails
+                    print("❌ Market analysis failed - creating basic fallback")
+                    let fallbackResult = self.createFallbackAnalysis(identification: identification, images: images)
+                    
+                    DispatchQueue.main.async {
+                        self.isAnalyzing = false
+                        self.analysisProgress = "Analysis complete (fallback mode)"
                         completion(fallbackResult)
                     }
-                    return
-                }
-                
-                // Step 7: Process market data
-                self.updateProgress(7, "Processing market data...")
-                
-                // Step 8: Compile final result
-                self.updateProgress(8, "Finalizing analysis...")
-                let finalResult = AnalysisResult(
-                    identificationResult: identification,
-                    marketAnalysis: marketAnalysis,
-                    ebayCondition: marketAnalysis.conditionAssessment.detectedCondition,
-                    ebayPricing: marketAnalysis.pricingRecommendation,
-                    soldListings: marketAnalysis.marketData.soldListings,
-                    confidence: marketAnalysis.confidence,
-                    images: images
-                )
-                
-                DispatchQueue.main.async {
-                    self.isAnalyzing = false
-                    self.analysisProgress = "Analysis complete with \(marketAnalysis.marketData.soldListings.count) market data points!"
-                    
-                    print("✅ Analysis complete:")
-                    print("  • Product: \(identification.exactModelName)")
-                    print("  • Brand: \(identification.brand)")
-                    print("  • Market Data: \(marketAnalysis.marketData.soldListings.count) sales")
-                    print("  • Recommended Price: $\(String(format: "%.2f", marketAnalysis.pricingRecommendation.recommendedPrice))")
-                    print("  • Market Confidence: \(String(format: "%.1f", marketAnalysis.confidence.overall * 100))%")
-                    
-                    completion(finalResult)
                 }
             }
         }
     }
     
-    // MARK: - Product Identification for Market Search
+    // MARK: - Product Identification Optimized for Market Search
     private func identifyProductForMarketSearch(base64Images: [String], completion: @escaping (PrecisionIdentificationResult?) -> Void) {
         guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
             print("❌ Invalid OpenAI URL")
@@ -133,39 +164,39 @@ class WorkingOpenAIService: ObservableObject {
         
         // Optimized system prompt for market data compatibility
         let systemPrompt = """
-        You are an expert product identifier that creates market-searchable product information. Your goal is to identify products in a way that will find matches across multiple market data sources.
+        You are an expert product identifier focused on creating market-searchable product information for eBay sold listings research.
 
         CRITICAL FOR MARKET DATA SUCCESS:
         1. Use EXACT brand names as they appear on products
-        2. Product names should be specific but searchable
-        3. Include style codes when clearly visible
-        4. Size information is crucial for accurate pricing
-        5. Focus on terms that will return market data results
+        2. Product names should match how items are listed on eBay
+        3. Include specific model names and variations
+        4. Size and colorway are crucial for accurate pricing
+        5. Style codes help find exact matches
 
-        MARKET DATA EXAMPLES:
-        ✅ GOOD: "Nike Air Force 1 Low", "Apple iPhone 13", "Jordan 1 Bred"
-        ❌ BAD: "Basketball shoe", "Phone", "Sneaker"
+        MARKET SEARCH EXAMPLES:
+        ✅ GOOD: "Nike Air Force 1 Low", "Apple iPhone 13", "Jordan 1 Bred", "Vans Authentic"
+        ❌ BAD: "Basketball shoe", "Phone", "Sneaker", "Shoe"
 
         Return ONLY valid JSON without markdown:
         {
-            "exactModelName": "Specific searchable product name",
+            "exactModelName": "Exact product name for market search",
             "brand": "Exact brand name",
             "productLine": "Product line if relevant",
-            "styleVariant": "Variant if needed",
+            "styleVariant": "Style variant",
             "styleCode": "Style/SKU code if visible",
             "colorway": "Color description",
-            "size": "Size if visible on tags",
+            "size": "Size from tags/labels",
             "category": "sneakers/clothing/electronics/accessories/home/collectibles/books/toys/sports/other",
             "subcategory": "Specific subcategory",
             "confidence": 0.95,
-            "identificationDetails": ["How you identified this product"],
+            "identificationDetails": ["How you identified this"],
             "alternativePossibilities": ["Other possible matches"]
         }
 
-        Focus on product details that will help find accurate market pricing data.
+        Focus on creating search terms that will find real eBay sold listings.
         """
         
-        // Prepare image content
+        // Prepare image content (use up to 3 images for speed)
         var imageContent: [[String: Any]] = []
         for base64Image in base64Images.prefix(3) {
             imageContent.append([
@@ -178,26 +209,24 @@ class WorkingOpenAIService: ObservableObject {
         }
         
         let userPrompt = """
-        Identify this product for market data search. Focus on:
+        Identify this product for eBay market research. Focus on:
 
-        1. EXACT PRODUCT IDENTIFICATION:
-        - What is the specific brand and model?
-        - Are there any style codes or SKU numbers visible?
-        - What size is shown on tags or labels?
-        - What is the exact colorway/style?
+        1. EXACT BRAND AND MODEL:
+        - What specific brand is this? (look for logos, tags, labels)
+        - What is the exact model name?
+        - Are there style codes or SKU numbers visible?
 
-        2. MARKET DATA COMPATIBILITY:
-        - Use terms that will find pricing data
-        - Be specific enough for accurate matches
-        - Include details that affect market value
+        2. MARKET-SEARCHABLE DETAILS:
+        - Size information from tags
+        - Colorway/color description
+        - Any specific variant names
 
-        3. KEY INFORMATION FOR PRICING:
-        - Brand name (exactly as shown)
-        - Model/product line
-        - Size (crucial for accurate pricing)
-        - Condition indicators
-        - Style codes if visible
+        3. SEARCHABLE PRODUCT NAME:
+        - Create a name that will find eBay sold listings
+        - Use terms buyers actually search for
+        - Include key identifying details
 
+        Look carefully at all text, logos, and identifying marks in the images.
         Return ONLY the JSON object with no markdown formatting.
         """
         
@@ -220,14 +249,14 @@ class WorkingOpenAIService: ObservableObject {
         let requestBody: [String: Any] = [
             "model": "gpt-4o",
             "messages": messages,
-            "max_tokens": 1000,
+            "max_tokens": 800,
             "temperature": 0.1
         ]
         
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         } catch {
-            print("❌ Error creating request body: \(error)")
+            print("❌ Error creating OpenAI request body: \(error)")
             completion(nil)
             return
         }
@@ -239,6 +268,18 @@ class WorkingOpenAIService: ObservableObject {
                 print("❌ OpenAI request error: \(error)")
                 completion(nil)
                 return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("📡 OpenAI response code: \(httpResponse.statusCode)")
+                if httpResponse.statusCode != 200 {
+                    print("❌ OpenAI API error: HTTP \(httpResponse.statusCode)")
+                    if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                        print("❌ OpenAI error response: \(responseString)")
+                    }
+                    completion(nil)
+                    return
+                }
             }
             
             guard let data = data else {
@@ -289,24 +330,27 @@ class WorkingOpenAIService: ObservableObject {
                         alternativePossibilities: productData.alternativePossibilities
                     )
                     
-                    print("✅ Product identification:")
+                    print("✅ Product identification successful:")
                     print("  • Name: \(identification.exactModelName)")
                     print("  • Brand: \(identification.brand)")
                     print("  • Style Code: \(identification.styleCode)")
                     print("  • Size: \(identification.size)")
                     print("  • Colorway: \(identification.colorway)")
+                    print("  • Category: \(identification.category.rawValue)")
                     print("  • Confidence: \(String(format: "%.1f", identification.confidence * 100))%")
                     
                     completion(identification)
                     
                 } catch {
                     print("❌ Error parsing OpenAI product data: \(error)")
-                    print("🔍 Attempting to parse partial content...")
+                    print("🔍 Raw content: \(cleanedContent)")
                     
+                    // Try to create a basic identification from partial data
                     if let partialIdentification = parsePartialIdentification(from: cleanedContent) {
-                        print("✅ Partial identification successful")
+                        print("✅ Partial identification created")
                         completion(partialIdentification)
                     } else {
+                        print("❌ Creating fallback identification")
                         completion(createFallbackIdentification())
                     }
                 }
@@ -325,25 +369,11 @@ class WorkingOpenAIService: ObservableObject {
     func analyzeBarcode(_ barcode: String, images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         updateProgress(1, "Looking up barcode...")
         
-        let barcodeIdentification = PrecisionIdentificationResult(
-            exactModelName: "Barcode Product",
-            brand: "Unknown",
-            productLine: "",
-            styleVariant: "",
-            styleCode: barcode,
-            colorway: "",
-            size: "",
-            category: .other,
-            subcategory: "",
-            identificationMethod: .textOnly,
-            confidence: 0.6,
-            identificationDetails: ["Identified by barcode: \(barcode)"],
-            alternativePossibilities: []
-        )
-        
+        // If we have images, do full analysis with barcode enhancement
         if !images.isEmpty {
             analyzeItem(images: images) { result in
                 if let result = result {
+                    // Enhance with barcode information
                     var enhancedIdentification = result.identificationResult
                     if enhancedIdentification.styleCode.isEmpty {
                         enhancedIdentification = PrecisionIdentificationResult(
@@ -378,6 +408,23 @@ class WorkingOpenAIService: ObservableObject {
                 }
             }
         } else {
+            // Barcode-only lookup
+            let barcodeIdentification = PrecisionIdentificationResult(
+                exactModelName: "Barcode Product",
+                brand: "Unknown",
+                productLine: "",
+                styleVariant: "",
+                styleCode: barcode,
+                colorway: "",
+                size: "",
+                category: .other,
+                subcategory: "",
+                identificationMethod: .textOnly,
+                confidence: 0.6,
+                identificationDetails: ["Identified by barcode: \(barcode)"],
+                alternativePossibilities: []
+            )
+            
             marketDataService.researchProduct(identification: barcodeIdentification, condition: EbayCondition.good) { marketAnalysis in
                 let result = self.createFallbackAnalysis(identification: barcodeIdentification, images: [])
                 completion(result)
@@ -385,12 +432,13 @@ class WorkingOpenAIService: ObservableObject {
         }
     }
     
-    // MARK: - Helper Methods (unchanged from original)
+    // MARK: - Helper Methods
     private func updateProgress(_ step: Int, _ message: String) {
         DispatchQueue.main.async {
             self.currentStep = step
             self.analysisProgress = message
         }
+        print("🔄 Step \(step)/\(totalSteps): \(message)")
     }
     
     private func convertImagesToBase64(_ images: [UIImage]) -> [String] {
@@ -410,10 +458,12 @@ class WorkingOpenAIService: ObservableObject {
     private func cleanMarkdownFromJSON(_ content: String) -> String {
         var cleaned = content
         
+        // Remove markdown code blocks
         cleaned = cleaned.replacingOccurrences(of: "```json", with: "", options: .caseInsensitive)
         cleaned = cleaned.replacingOccurrences(of: "```JSON", with: "", options: .caseInsensitive)
         cleaned = cleaned.replacingOccurrences(of: "```", with: "")
         
+        // Extract JSON between first { and last }
         if let jsonStart = cleaned.firstIndex(of: "{"),
            let jsonEnd = cleaned.lastIndex(of: "}") {
             cleaned = String(cleaned[jsonStart...jsonEnd])
@@ -423,6 +473,7 @@ class WorkingOpenAIService: ObservableObject {
     }
     
     private func parsePartialIdentification(from json: String) -> PrecisionIdentificationResult? {
+        // Try to extract basic information using regex
         var exactModelName = "Unknown Product"
         var brand = ""
         var size = ""
@@ -430,29 +481,29 @@ class WorkingOpenAIService: ObservableObject {
         var category = "other"
         var styleCode = ""
         
-        // Extract using regex patterns
+        // Extract values using simple pattern matching
         if let modelRange = json.range(of: "\"exactModelName\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
-            exactModelName = extractValue(from: String(json[modelRange]))
+            exactModelName = extractQuotedValue(from: String(json[modelRange]))
         }
         
         if let brandRange = json.range(of: "\"brand\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
-            brand = extractValue(from: String(json[brandRange]))
+            brand = extractQuotedValue(from: String(json[brandRange]))
         }
         
         if let sizeRange = json.range(of: "\"size\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
-            size = extractValue(from: String(json[sizeRange]))
+            size = extractQuotedValue(from: String(json[sizeRange]))
         }
         
         if let colorRange = json.range(of: "\"colorway\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
-            colorway = extractValue(from: String(json[colorRange]))
+            colorway = extractQuotedValue(from: String(json[colorRange]))
         }
         
         if let categoryRange = json.range(of: "\"category\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
-            category = extractValue(from: String(json[categoryRange]))
+            category = extractQuotedValue(from: String(json[categoryRange]))
         }
         
         if let styleRange = json.range(of: "\"styleCode\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
-            styleCode = extractValue(from: String(json[styleRange]))
+            styleCode = extractQuotedValue(from: String(json[styleRange]))
         }
         
         return PrecisionIdentificationResult(
@@ -472,12 +523,14 @@ class WorkingOpenAIService: ObservableObject {
         )
     }
     
-    private func extractValue(from match: String) -> String {
+    private func extractQuotedValue(from match: String) -> String {
         if let colonIndex = match.firstIndex(of: ":"),
-           let startQuote = match.firstIndex(of: "\"", after: colonIndex),
+           let startQuote = match.firstIndex(of: "\"", range: colonIndex..<match.endIndex),
            let endQuote = match.lastIndex(of: "\"") {
             let startIndex = match.index(after: startQuote)
-            return String(match[startIndex..<endQuote])
+            if startIndex < endQuote {
+                return String(match[startIndex..<endQuote])
+            }
         }
         return ""
     }
@@ -515,7 +568,7 @@ class WorkingOpenAIService: ObservableObject {
             acceptable: basePrice * 0.35,
             average: basePrice * 0.75,
             soldCount: 0,
-            dateRange: "No data available"
+            dateRange: "No market data"
         )
         
         let marketData = EbayMarketData(
@@ -590,16 +643,16 @@ class WorkingOpenAIService: ObservableObject {
             return category == .sneakers ? 120.0 : 45.0
         } else if brand.contains("adidas") {
             return category == .sneakers ? 100.0 : 40.0
+        } else if brand.contains("vans") {
+            return category == .sneakers ? 60.0 : 35.0
         } else if brand.contains("apple") {
             return 350.0
         } else if brand.contains("supreme") {
             return 200.0
-        } else if brand.contains("champion") {
-            return category == .clothing ? 25.0 : 30.0
         }
         
         switch category {
-        case .sneakers: return 80.0
+        case .sneakers: return 70.0
         case .electronics: return 150.0
         case .clothing: return 30.0
         case .accessories: return 35.0
@@ -608,11 +661,11 @@ class WorkingOpenAIService: ObservableObject {
     }
 }
 
-// MARK: - Extension for String.firstIndex
+// MARK: - Extension for String Range Operations
 extension String {
-    func firstIndex(of character: Character, after index: String.Index) -> String.Index? {
-        return self[self.index(after: index)...].firstIndex(of: character).map {
-            self.index($0, offsetBy: 0)
+    func firstIndex(of character: Character, range: Range<String.Index>) -> String.Index? {
+        return self[range].firstIndex(of: character).map {
+            self.index(self.startIndex, offsetBy: self.distance(from: self.startIndex, to: $0))
         }
     }
 }

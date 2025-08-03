@@ -2,13 +2,13 @@
 //  EbayAPIService.swift
 //  ResellAI
 //
-//  Fixed eBay API Service with Better Rate Limiting and Retry Logic
+//  eBay API Service with Better Rate Limiting - Fallback for RapidAPI
 //
 
 import SwiftUI
 import Foundation
 
-// MARK: - Enhanced eBay API Service with Rate Limiting and Retry Logic
+// MARK: - eBay API Service - Fallback for Real eBay Data
 class EbayAPIService: ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not authenticated"
@@ -17,17 +17,17 @@ class EbayAPIService: ObservableObject {
     
     private let baseURL = "https://svcs.ebay.com/services/search/FindingService/v1"
     
-    // Enhanced rate limiting
+    // Conservative rate limiting for eBay Finding API
     private var lastAPICall: Date = Date(timeIntervalSince1970: 0)
-    private let minAPIInterval: TimeInterval = 3.0 // Increased to 3 seconds between calls
+    private let minAPIInterval: TimeInterval = 5.0 // 5 seconds between calls
     private var callCount = 0
-    private let maxCallsPerMinute = 5 // Reduced to be more conservative
+    private let maxCallsPerMinute = 3 // Very conservative
     private var rateLimitResetTime: Date = Date()
     private var consecutiveRateLimitErrors = 0
     
     // Retry logic
-    private let maxRetries = 3
-    private let baseRetryDelay: TimeInterval = 30.0 // Start with 30 seconds
+    private let maxRetries = 2
+    private let baseRetryDelay: TimeInterval = 60.0 // 1 minute base delay
     
     init() {
         checkAuthenticationStatus()
@@ -36,12 +36,11 @@ class EbayAPIService: ObservableObject {
     // MARK: - Authentication Status
     private func checkAuthenticationStatus() {
         isAuthenticated = !Configuration.ebayAPIKey.isEmpty
-        authStatus = isAuthenticated ? "Ready" : "eBay API Key missing"
+        authStatus = isAuthenticated ? "eBay Finding API Ready (Fallback)" : "eBay API Key missing"
         
         if isAuthenticated {
-            print("🔍 eBay Finding API Ready with Enhanced Rate Limiting")
+            print("🔍 eBay Finding API Ready as Fallback")
             print("• App ID: \(Configuration.ebayAPIKey)")
-            print("• Base URL: \(baseURL)")
             print("• Rate Limit: \(maxCallsPerMinute) calls/minute, \(minAPIInterval)s between calls")
         }
     }
@@ -52,7 +51,7 @@ class EbayAPIService: ObservableObject {
         completion(hasAuth)
     }
     
-    // MARK: - Enhanced eBay Sold Comp Lookup with Retry Logic
+    // MARK: - eBay Sold Comp Lookup (Fallback Method)
     func getSoldComps(
         keywords: [String],
         completion: @escaping ([EbaySoldListing]) -> Void
@@ -70,11 +69,18 @@ class EbayAPIService: ObservableObject {
             return
         }
         
+        // Check if we're rate limited
+        if consecutiveRateLimitErrors > 2 {
+            print("⏰ eBay API rate limited - skipping search")
+            completion([])
+            return
+        }
+        
         isSearching = true
         
-        // Create search query from keywords (simplified)
+        // Create conservative search query
         let searchQuery = optimizeSearchQuery(keywords)
-        print("🔍 eBay search query: \(searchQuery)")
+        print("🔍 eBay Finding API fallback search: \(searchQuery)")
         
         // Search with retry logic
         searchWithRetry(query: searchQuery, retryCount: 0) { [weak self] results in
@@ -85,87 +91,67 @@ class EbayAPIService: ObservableObject {
         }
     }
     
-    // MARK: - Search with Retry Logic
+    // MARK: - Search with Conservative Retry Logic
     private func searchWithRetry(
         query: String,
         retryCount: Int,
         completion: @escaping ([EbaySoldListing]) -> Void
     ) {
         
-        // Check if we need to wait due to rate limiting
-        if consecutiveRateLimitErrors > 0 {
-            let waitTime = calculateWaitTime(retryCount: retryCount)
-            print("⏰ Rate limited - waiting \(Int(waitTime)) seconds before retry \(retryCount + 1)/\(maxRetries)")
+        // Check rate limiting
+        let now = Date()
+        let timeSinceLastCall = now.timeIntervalSince(lastAPICall)
+        
+        if timeSinceLastCall < minAPIInterval {
+            let waitTime = minAPIInterval - timeSinceLastCall
+            print("⏰ eBay API waiting \(Int(waitTime)) seconds for rate limit")
             
             DispatchQueue.global().asyncAfter(deadline: .now() + waitTime) {
-                self.executeEbaySearchWithRetry(
-                    query: query,
-                    retryCount: retryCount,
-                    completion: completion
-                )
+                self.executeEbaySearch(query: query, retryCount: retryCount, completion: completion)
             }
         } else {
-            executeEbaySearchWithRetry(
-                query: query,
-                retryCount: retryCount,
-                completion: completion
-            )
+            executeEbaySearch(query: query, retryCount: retryCount, completion: completion)
         }
     }
     
-    // MARK: - Calculate Exponential Backoff Wait Time
-    private func calculateWaitTime(retryCount: Int) -> TimeInterval {
-        // Exponential backoff: 30s, 60s, 120s
-        let exponentialDelay = baseRetryDelay * pow(2.0, Double(retryCount))
-        
-        // Add some jitter to avoid thundering herd
-        let jitter = Double.random(in: 0.8...1.2)
-        
-        return min(exponentialDelay * jitter, 300.0) // Cap at 5 minutes
-    }
-    
-    // MARK: - Execute Search with Enhanced Rate Limiting
-    private func executeEbaySearchWithRetry(
+    // MARK: - Execute eBay Search
+    private func executeEbaySearch(
         query: String,
         retryCount: Int,
         completion: @escaping ([EbaySoldListing]) -> Void
     ) {
         
-        // Enforce rate limiting
-        let now = Date()
-        let timeSinceLastCall = now.timeIntervalSince(lastAPICall)
+        lastAPICall = Date()
         
-        let delay = max(0, minAPIInterval - timeSinceLastCall)
-        
-        DispatchQueue.global().asyncAfter(deadline: .now() + delay) {
-            self.lastAPICall = Date()
-            self.performEbaySearch(query: query) { [weak self] success, results in
+        performEbaySearch(query: query) { [weak self] success, results in
+            if success {
+                // Reset consecutive errors on success
+                self?.consecutiveRateLimitErrors = 0
+                completion(results)
+            } else {
+                // Handle failure
+                self?.consecutiveRateLimitErrors += 1
                 
-                if success {
-                    // Reset consecutive errors on success
-                    self?.consecutiveRateLimitErrors = 0
-                    completion(results)
-                } else {
-                    // Handle failure
-                    self?.consecutiveRateLimitErrors += 1
+                if retryCount < self?.maxRetries ?? 0 {
+                    let waitTime = self?.baseRetryDelay ?? 60.0
+                    print("🔄 eBay API retry \(retryCount + 1)/\(self?.maxRetries ?? 0) in \(Int(waitTime)) seconds")
                     
-                    if retryCount < self?.maxRetries ?? 0 {
-                        print("🔄 Retry \(retryCount + 1)/\(self?.maxRetries ?? 0) for: \(query)")
+                    DispatchQueue.global().asyncAfter(deadline: .now() + waitTime) {
                         self?.searchWithRetry(
                             query: query,
                             retryCount: retryCount + 1,
                             completion: completion
                         )
-                    } else {
-                        print("❌ Max retries exceeded for: \(query)")
-                        completion([])
                     }
+                } else {
+                    print("❌ eBay API max retries exceeded")
+                    completion([])
                 }
             }
         }
     }
     
-    // MARK: - Perform eBay Search
+    // MARK: - Perform eBay Finding API Search
     private func performEbaySearch(
         query: String,
         completion: @escaping (Bool, [EbaySoldListing]) -> Void
@@ -179,7 +165,7 @@ class EbayAPIService: ObservableObject {
         let endDateString = dateFormatter.string(from: endDate)
         let startDateString = dateFormatter.string(from: startDate)
         
-        // Build eBay Finding API URL with GET parameters
+        // Build conservative eBay Finding API URL
         var urlComponents = URLComponents(string: baseURL)!
         urlComponents.queryItems = [
             URLQueryItem(name: "OPERATION-NAME", value: "findCompletedItems"),
@@ -193,7 +179,7 @@ class EbayAPIService: ObservableObject {
             URLQueryItem(name: "itemFilter(1).value", value: startDateString),
             URLQueryItem(name: "itemFilter(2).name", value: "EndTimeTo"),
             URLQueryItem(name: "itemFilter(2).value", value: endDateString),
-            URLQueryItem(name: "paginationInput.entriesPerPage", value: "25"), // Reduced to be gentler
+            URLQueryItem(name: "paginationInput.entriesPerPage", value: "15"), // Even more conservative
             URLQueryItem(name: "sortOrder", value: "EndTimeSoonest")
         ]
         
@@ -205,15 +191,29 @@ class EbayAPIService: ObservableObject {
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 30.0
+        request.timeoutInterval = 45.0
         
-        print("🌐 eBay API call to: \(query)")
+        print("🌐 eBay Finding API fallback call")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
                 print("❌ eBay API network error: \(error)")
                 completion(false, [])
                 return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("📡 eBay API response code: \(httpResponse.statusCode)")
+                
+                if httpResponse.statusCode == 429 {
+                    print("⚠️ eBay API rate limited (429)")
+                    completion(false, [])
+                    return
+                } else if httpResponse.statusCode != 200 {
+                    print("❌ eBay API error: HTTP \(httpResponse.statusCode)")
+                    completion(false, [])
+                    return
+                }
             }
             
             guard let data = data else {
@@ -230,7 +230,7 @@ class EbayAPIService: ObservableObject {
         }.resume()
     }
     
-    // MARK: - Enhanced eBay Response Parsing
+    // MARK: - eBay Response Parsing
     private func parseEbayResponse(
         data: Data,
         completion: @escaping (Bool, [EbaySoldListing]) -> Void
@@ -249,12 +249,12 @@ class EbayAPIService: ObservableObject {
                 
                 print("❌ eBay API Error: \(errorMsg)")
                 
-                if errorMsg.contains("exceeded") || errorMsg.contains("rate") {
-                    print("🔄 Rate limit detected - will retry with backoff")
+                if errorMsg.contains("exceeded") || errorMsg.contains("rate") || errorMsg.contains("limit") {
+                    print("🔄 eBay rate limit detected")
                     completion(false, [])
                     return
                 } else {
-                    print("❌ Non-rate-limit error: \(errorMsg)")
+                    print("❌ eBay API error: \(errorMsg)")
                     completion(false, [])
                     return
                 }
@@ -280,7 +280,7 @@ class EbayAPIService: ObservableObject {
             // Extract search result
             guard let searchResult = firstResponse["searchResult"] as? [[String: Any]],
                   let firstResult = searchResult.first else {
-                print("📄 No search results in response")
+                print("📄 No search results in eBay response")
                 completion(true, []) // Success but no results
                 return
             }
@@ -296,12 +296,12 @@ class EbayAPIService: ObservableObject {
             
             // Extract items
             guard let items = firstResult["item"] as? [[String: Any]] else {
-                print("📄 No items array in search results")
+                print("📄 No items array in eBay search results")
                 completion(true, []) // Success but no results
                 return
             }
             
-            print("✅ eBay returned \(items.count) sold items")
+            print("✅ eBay Finding API returned \(items.count) sold items")
             
             var soldListings: [EbaySoldListing] = []
             
@@ -317,34 +317,31 @@ class EbayAPIService: ObservableObject {
                 .filter { $0.soldDate >= thirtyDaysAgo }
                 .sorted { $0.soldDate > $1.soldDate }
             
-            print("✅ Processed \(recentSoldListings.count) recent sold items (last 30 days)")
+            print("✅ eBay processed \(recentSoldListings.count) recent sold items (last 30 days)")
             
             completion(true, recentSoldListings)
             
         } catch {
             print("❌ Error parsing eBay API response: \(error)")
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("📄 Raw response: \(String(responseString.prefix(200)))...")
-            }
             completion(false, [])
         }
     }
     
-    // MARK: - Optimize Search Query (More Conservative)
+    // MARK: - Optimize Search Query (Very Conservative)
     private func optimizeSearchQuery(_ keywords: [String]) -> String {
-        // Remove duplicates and common words
+        // Take only the most essential keywords
         let filteredKeywords = keywords.filter { keyword in
             let lower = keyword.lowercased()
             return !["the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of", "with", "by"].contains(lower) &&
                    keyword.count > 1
         }
         
-        // Take only the most relevant keywords (brand + model)
-        let optimizedKeywords = Array(filteredKeywords.prefix(2)) // Reduced from 3 to 2
+        // Use only brand + model (2 keywords max)
+        let optimizedKeywords = Array(filteredKeywords.prefix(2))
         return optimizedKeywords.joined(separator: " ")
     }
     
-    // MARK: - Parse Individual eBay Item (unchanged)
+    // MARK: - Parse Individual eBay Item
     private func parseEbayItem(item: [String: Any]) -> EbaySoldListing? {
         
         // Extract title
@@ -417,58 +414,7 @@ class EbayAPIService: ObservableObject {
         )
     }
     
-    // MARK: - Multiple Search Strategy (More Conservative)
-    func searchWithMultipleQueries(
-        keywordSets: [[String]],
-        completion: @escaping ([EbaySoldListing]) -> Void
-    ) {
-        
-        var allResults: [EbaySoldListing] = []
-        var searchIndex = 0
-        
-        // Search sequentially with increased delays
-        func searchNext() {
-            guard searchIndex < keywordSets.count else {
-                let uniqueResults = removeDuplicates(from: allResults)
-                completion(uniqueResults)
-                return
-            }
-            
-            let keywords = keywordSets[searchIndex]
-            searchIndex += 1
-            
-            getSoldComps(keywords: keywords) { results in
-                allResults.append(contentsOf: results)
-                
-                // Wait longer before next search (increased from 2 to 5 seconds)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                    searchNext()
-                }
-            }
-        }
-        
-        searchNext()
-    }
-    
-    // MARK: - Remove Duplicates (unchanged)
-    private func removeDuplicates(from listings: [EbaySoldListing]) -> [EbaySoldListing] {
-        var uniqueListings: [EbaySoldListing] = []
-        var seenSignatures: Set<String> = []
-        
-        for listing in listings {
-            // Create signature from title + price
-            let signature = "\(listing.title.lowercased().prefix(50))-\(String(format: "%.2f", listing.price))"
-            
-            if !seenSignatures.contains(signature) {
-                seenSignatures.insert(signature)
-                uniqueListings.append(listing)
-            }
-        }
-        
-        return uniqueListings.sorted { $0.soldDate > $1.soldDate }
-    }
-    
-    // MARK: - Price Analysis from Sold Comps (unchanged)
+    // MARK: - Price Analysis from Sold Comps
     func analyzeComps(_ soldListings: [EbaySoldListing]) -> CompAnalysis {
         guard !soldListings.isEmpty else {
             return CompAnalysis(
@@ -525,7 +471,7 @@ class EbayAPIService: ObservableObject {
         )
     }
     
-    // MARK: - Get Pricing Recommendations from Comps (unchanged)
+    // MARK: - Get Pricing Recommendations from Comps
     func getPricingFromComps(_ soldListings: [EbaySoldListing], condition: EbayCondition) -> EbayPricingRecommendation {
         let analysis = analyzeComps(soldListings)
         
@@ -546,7 +492,7 @@ class EbayAPIService: ObservableObject {
             maxProfitPrice: maxProfitPrice,
             pricingStrategy: .competitive,
             priceJustification: [
-                "Based on \(analysis.totalSales) recent sales",
+                "Based on \(analysis.totalSales) recent eBay sales",
                 "Average price: $\(String(format: "%.2f", analysis.averagePrice))",
                 "Median price: $\(String(format: "%.2f", analysis.medianPrice))",
                 "Adjusted for \(condition.rawValue) condition"
@@ -554,11 +500,11 @@ class EbayAPIService: ObservableObject {
         )
     }
     
-    // MARK: - Mock eBay Listing Creation (unchanged)
+    // MARK: - eBay Listing Creation (Mock for now)
     func createListing(item: InventoryItem, analysis: AnalysisResult, completion: @escaping (EbayListingResult) -> Void) {
         isListing = true
         
-        // Mock result for now - real implementation would use eBay Trading API
+        // Mock result - real implementation would use eBay Trading API
         let result = EbayListingResult(
             success: true,
             listingId: "MOCK-\(UUID().uuidString.prefix(8))",
@@ -594,20 +540,19 @@ class EbayAPIService: ObservableObject {
     // MARK: - Rate Limit Status
     func getRateLimitStatus() -> String {
         if consecutiveRateLimitErrors == 0 {
-            return "✅ No rate limit issues"
+            return "✅ eBay API healthy"
         } else {
-            return "⚠️ \(consecutiveRateLimitErrors) consecutive rate limit errors"
+            return "⚠️ \(consecutiveRateLimitErrors) consecutive eBay API errors"
         }
     }
     
     func resetRateLimitStatus() {
         consecutiveRateLimitErrors = 0
-        rateLimitResetTime = Date()
-        print("🔄 Rate limit status reset")
+        print("🔄 eBay API status reset")
     }
 }
 
-// MARK: - Comp Analysis Data Structure (unchanged)
+// MARK: - Comp Analysis Data Structure
 struct CompAnalysis {
     let averagePrice: Double
     let medianPrice: Double
