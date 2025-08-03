@@ -2,19 +2,21 @@
 //  EbayAuthManager.swift
 //  ResellAI
 //
-//  Enhanced eBay OAuth 2.0 Authentication Manager with User Sign-In
+//  Complete eBay OAuth 2.0 Authentication Manager
 //
 
 import SwiftUI
 import Foundation
 import AuthenticationServices
+import CryptoKit
 
-// MARK: - Enhanced eBay OAuth 2.0 Authentication Manager
+// MARK: - Complete eBay OAuth 2.0 Authentication Manager
 class EbayAuthManager: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authenticationStatus = "Not signed in"
     @Published var userProfile: EbayUserProfile?
     @Published var isAuthenticating = false
+    @Published var authError: String?
     
     private let clientId = Configuration.ebayAPIKey
     private let clientSecret = Configuration.ebayClientSecret
@@ -34,6 +36,12 @@ class EbayAuthManager: NSObject, ObservableObject {
             "https://api.ebay.com/identity/v1/oauth2/token"
     }
     
+    private var userInfoURL: String {
+        return environment == "SANDBOX" ?
+            "https://apiz.sandbox.ebay.com/commerce/identity/v1/user" :
+            "https://apiz.ebay.com/commerce/identity/v1/user"
+    }
+    
     // eBay OAuth scopes for listing items
     private let requiredScopes = [
         "https://api.ebay.com/oauth/api_scope/sell.marketing",
@@ -42,12 +50,13 @@ class EbayAuthManager: NSObject, ObservableObject {
         "https://api.ebay.com/oauth/api_scope/sell.fulfillment"
     ].joined(separator: " ")
     
-    // Token storage
+    // Token storage keys
     private let accessTokenKey = "ebay_access_token"
     private let refreshTokenKey = "ebay_refresh_token"
     private let tokenExpiryKey = "ebay_token_expiry"
     private let userProfileKey = "ebay_user_profile"
     
+    // Token management
     var accessToken: String? {
         get { UserDefaults.standard.string(forKey: accessTokenKey) }
         set {
@@ -72,6 +81,7 @@ class EbayAuthManager: NSObject, ObservableObject {
         super.init()
         loadUserProfile()
         updateAuthenticationStatus()
+        Configuration.validateConfiguration()
     }
     
     // MARK: - Public Authentication Methods
@@ -80,14 +90,19 @@ class EbayAuthManager: NSObject, ObservableObject {
         guard !clientId.isEmpty && !clientSecret.isEmpty else {
             print("❌ eBay OAuth credentials not configured")
             authenticationStatus = "eBay credentials missing"
+            authError = "eBay API credentials are not configured. Please check Configuration.swift"
             completion(false)
             return
         }
         
         isAuthenticating = true
         authenticationStatus = "Signing in to eBay..."
+        authError = nil
         
         print("🔐 Starting eBay OAuth 2.0 sign-in...")
+        print("• Environment: \(environment)")
+        print("• Client ID: \(clientId)")
+        print("• Redirect URI: \(redirectURI)")
         
         // Check if we already have a valid token
         if hasValidToken() {
@@ -122,6 +137,7 @@ class EbayAuthManager: NSObject, ObservableObject {
         userProfile = nil
         isAuthenticated = false
         authenticationStatus = "Signed out"
+        authError = nil
         
         // Clear user profile from storage
         UserDefaults.standard.removeObject(forKey: userProfileKey)
@@ -164,6 +180,7 @@ class EbayAuthManager: NSObject, ObservableObject {
         guard let authorizationURL = urlComponents.url else {
             print("❌ Failed to create eBay authorization URL")
             isAuthenticating = false
+            authError = "Failed to create authorization URL"
             completion(false)
             return
         }
@@ -180,6 +197,7 @@ class EbayAuthManager: NSObject, ObservableObject {
             if let error = error {
                 print("❌ eBay authentication error: \(error)")
                 self?.authenticationStatus = "Sign-in failed"
+                self?.authError = error.localizedDescription
                 completion(false)
                 return
             }
@@ -187,6 +205,7 @@ class EbayAuthManager: NSObject, ObservableObject {
             guard let callbackURL = callbackURL else {
                 print("❌ No callback URL received")
                 self?.authenticationStatus = "Sign-in cancelled"
+                self?.authError = "Authentication was cancelled"
                 completion(false)
                 return
             }
@@ -202,11 +221,29 @@ class EbayAuthManager: NSObject, ObservableObject {
     private func handleAuthorizationCallback(url: URL, codeVerifier: String, completion: @escaping (Bool) -> Void) {
         let urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
         
-        guard let queryItems = urlComponents?.queryItems,
-              let code = queryItems.first(where: { $0.name == "code" })?.value,
-              let state = queryItems.first(where: { $0.name == "state" })?.value else {
+        guard let queryItems = urlComponents?.queryItems else {
             print("❌ Invalid callback URL format")
             authenticationStatus = "Invalid response from eBay"
+            authError = "Invalid callback URL format"
+            completion(false)
+            return
+        }
+        
+        // Check for error in callback
+        if let errorCode = queryItems.first(where: { $0.name == "error" })?.value {
+            let errorDescription = queryItems.first(where: { $0.name == "error_description" })?.value ?? "Unknown error"
+            print("❌ eBay OAuth error: \(errorCode) - \(errorDescription)")
+            authenticationStatus = "Sign-in failed"
+            authError = errorDescription
+            completion(false)
+            return
+        }
+        
+        guard let code = queryItems.first(where: { $0.name == "code" })?.value,
+              let state = queryItems.first(where: { $0.name == "state" })?.value else {
+            print("❌ Missing authorization code or state")
+            authenticationStatus = "Invalid response from eBay"
+            authError = "Missing authorization code"
             completion(false)
             return
         }
@@ -216,6 +253,7 @@ class EbayAuthManager: NSObject, ObservableObject {
         guard state == storedState else {
             print("❌ State parameter mismatch - possible CSRF attack")
             authenticationStatus = "Security error"
+            authError = "Security validation failed"
             completion(false)
             return
         }
@@ -227,6 +265,7 @@ class EbayAuthManager: NSObject, ObservableObject {
     
     private func exchangeCodeForToken(authorizationCode: String, codeVerifier: String, completion: @escaping (Bool) -> Void) {
         guard let url = URL(string: tokenURL) else {
+            authError = "Invalid token URL"
             completion(false)
             return
         }
@@ -253,11 +292,14 @@ class EbayAuthManager: NSObject, ObservableObject {
         
         request.httpBody = bodyString.data(using: .utf8)
         
+        print("🔄 Exchanging authorization code for access token...")
+        
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 if let error = error {
                     print("❌ Token exchange error: \(error)")
                     self?.authenticationStatus = "Failed to complete sign-in"
+                    self?.authError = error.localizedDescription
                     completion(false)
                     return
                 }
@@ -265,8 +307,14 @@ class EbayAuthManager: NSObject, ObservableObject {
                 guard let data = data else {
                     print("❌ No data received from token endpoint")
                     self?.authenticationStatus = "No response from eBay"
+                    self?.authError = "No response from eBay servers"
                     completion(false)
                     return
+                }
+                
+                // Log response for debugging
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("🔍 Token response: \(responseString)")
                 }
                 
                 do {
@@ -276,25 +324,26 @@ class EbayAuthManager: NSObject, ObservableObject {
                         if profileSuccess {
                             print("✅ eBay sign-in successful!")
                             self?.authenticationStatus = "Signed in successfully"
+                            completion(true)
                         } else {
-                            print("⚠️ Signed in but failed to fetch profile")
+                            print("⚠️ Token received but profile fetch failed")
                             self?.authenticationStatus = "Signed in (profile unavailable)"
+                            completion(true)
                         }
-                        completion(true)
                     }
                 } catch {
-                    print("❌ Token response parsing error: \(error)")
-                    if let responseString = String(data: data, encoding: .utf8) {
-                        print("Response: \(responseString)")
-                    }
-                    self?.authenticationStatus = "Failed to parse response"
+                    print("❌ Failed to decode token response: \(error)")
+                    self?.authenticationStatus = "Invalid response from eBay"
+                    self?.authError = "Failed to process eBay response"
                     completion(false)
                 }
             }
         }.resume()
     }
     
-    private func refreshAccessToken(refreshToken: String, completion: @escaping (Bool) -> Void) {
+    // MARK: - Token Refresh
+    
+    func refreshAccessToken(refreshToken: String, completion: @escaping (Bool) -> Void) {
         guard let url = URL(string: tokenURL) else {
             completion(false)
             return
@@ -304,15 +353,13 @@ class EbayAuthManager: NSObject, ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
-        // Create basic auth header
         let credentials = "\(clientId):\(clientSecret)"
         let base64Credentials = Data(credentials.utf8).base64EncodedString()
         request.setValue("Basic \(base64Credentials)", forHTTPHeaderField: "Authorization")
         
         let bodyParameters = [
             "grant_type": "refresh_token",
-            "refresh_token": refreshToken,
-            "scope": requiredScopes
+            "refresh_token": refreshToken
         ]
         
         let bodyString = bodyParameters
@@ -320,6 +367,8 @@ class EbayAuthManager: NSObject, ObservableObject {
             .joined(separator: "&")
         
         request.httpBody = bodyString.data(using: .utf8)
+        
+        print("🔄 Refreshing eBay access token...")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
@@ -338,46 +387,38 @@ class EbayAuthManager: NSObject, ObservableObject {
                 do {
                     let tokenResponse = try JSONDecoder().decode(EbayTokenResponse.self, from: data)
                     self?.storeTokens(tokenResponse)
-                    print("✅ eBay token refreshed successfully!")
+                    print("✅ eBay token refreshed successfully")
                     completion(true)
                 } catch {
-                    print("❌ Token refresh response parsing error: \(error)")
+                    print("❌ Failed to decode refresh response: \(error)")
                     completion(false)
                 }
             }
         }.resume()
     }
     
-    // MARK: - User Profile Management
+    // MARK: - User Profile
     
     private func fetchUserProfile(completion: @escaping (Bool) -> Void) {
-        guard let token = accessToken else {
-            completion(false)
-            return
-        }
-        
-        let profileURL = environment == "SANDBOX" ?
-            "https://api.sandbox.ebay.com/identity/v1/user" :
-            "https://api.ebay.com/identity/v1/user"
-        
-        guard let url = URL(string: profileURL) else {
+        guard let accessToken = accessToken,
+              let url = URL(string: userInfoURL) else {
             completion(false)
             return
         }
         
         var request = URLRequest(url: url)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 if let error = error {
-                    print("❌ Profile fetch error: \(error)")
+                    print("⚠️ User profile fetch error: \(error)")
                     completion(false)
                     return
                 }
                 
                 guard let data = data else {
-                    print("❌ No profile data received")
+                    print("⚠️ No user profile data received")
                     completion(false)
                     return
                 }
@@ -385,37 +426,19 @@ class EbayAuthManager: NSObject, ObservableObject {
                 do {
                     let profile = try JSONDecoder().decode(EbayUserProfile.self, from: data)
                     self?.userProfile = profile
-                    self?.saveUserProfile(profile)
-                    print("✅ User profile fetched: \(profile.username ?? "Unknown")")
+                    self?.saveUserProfile()
+                    print("✅ User profile loaded: \(profile.username)")
                     completion(true)
                 } catch {
-                    print("❌ Profile parsing error: \(error)")
-                    completion(false)
+                    print("⚠️ Failed to decode user profile: \(error)")
+                    // Don't fail the whole process for profile issues
+                    completion(true)
                 }
             }
         }.resume()
     }
     
-    private func saveUserProfile(_ profile: EbayUserProfile) {
-        do {
-            let data = try JSONEncoder().encode(profile)
-            UserDefaults.standard.set(data, forKey: userProfileKey)
-        } catch {
-            print("❌ Failed to save user profile: \(error)")
-        }
-    }
-    
-    private func loadUserProfile() {
-        guard let data = UserDefaults.standard.data(forKey: userProfileKey) else { return }
-        
-        do {
-            userProfile = try JSONDecoder().decode(EbayUserProfile.self, from: data)
-        } catch {
-            print("❌ Failed to load user profile: \(error)")
-        }
-    }
-    
-    // MARK: - Token Management
+    // MARK: - Storage Management
     
     private func storeTokens(_ tokenResponse: EbayTokenResponse) {
         accessToken = tokenResponse.access_token
@@ -428,6 +451,20 @@ class EbayAuthManager: NSObject, ObservableObject {
         
         print("🔐 eBay tokens stored successfully")
         print("🔐 Token expires: \(expiryDate)")
+    }
+    
+    private func saveUserProfile() {
+        if let profile = userProfile,
+           let data = try? JSONEncoder().encode(profile) {
+            UserDefaults.standard.set(data, forKey: userProfileKey)
+        }
+    }
+    
+    private func loadUserProfile() {
+        if let data = UserDefaults.standard.data(forKey: userProfileKey),
+           let profile = try? JSONDecoder().decode(EbayUserProfile.self, from: data) {
+            userProfile = profile
+        }
     }
     
     private func updateAuthenticationStatus() {
@@ -466,7 +503,7 @@ class EbayAuthManager: NSObject, ObservableObject {
             .replacingOccurrences(of: "=", with: "")
     }
     
-    // MARK: - Listing Management
+    // MARK: - Public API Methods
     
     func canCreateListings() -> Bool {
         return isAuthenticated && hasValidToken()
@@ -480,52 +517,52 @@ class EbayAuthManager: NSObject, ObservableObject {
             sellerLevel: userProfile?.registrationMarketplaceId == "EBAY_US" ? "Standard" : "Basic"
         )
     }
+    
+    func getAuthStatus() -> String {
+        if isAuthenticated {
+            return "✅ eBay Connected"
+        } else if !clientId.isEmpty {
+            return "🔐 Ready to connect"
+        } else {
+            return "❌ Not configured"
+        }
+    }
+    
+    func validateCredentials() -> Bool {
+        return !clientId.isEmpty && !clientSecret.isEmpty
+    }
+    
+    // MARK: - Testing Helper
+    
+    func testConfiguration() -> String {
+        var status = "🧪 eBay Configuration Test:\n\n"
+        
+        status += "• Client ID: \(clientId.isEmpty ? "❌ Missing" : "✅ Set")\n"
+        status += "• Client Secret: \(clientSecret.isEmpty ? "❌ Missing" : "✅ Set")\n"
+        status += "• Environment: \(environment)\n"
+        status += "• Redirect URI: \(redirectURI)\n"
+        status += "• Auth URL: \(authURL)\n"
+        status += "• Token URL: \(tokenURL)\n\n"
+        
+        if hasValidToken() {
+            status += "🔐 Current Status: ✅ Authenticated\n"
+            if let expiry = tokenExpiry {
+                status += "• Token expires: \(expiry)\n"
+            }
+            if let username = userProfile?.username {
+                status += "• User: \(username)\n"
+            }
+        } else {
+            status += "🔐 Current Status: ❌ Not authenticated\n"
+        }
+        
+        return status
+    }
 }
 
 // MARK: - ASWebAuthenticationPresentationContextProviding
 extension EbayAuthManager: ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        return UIApplication.shared.windows.first { $0.isKeyWindow } ?? ASPresentationAnchor()
+        return UIApplication.shared.windows.first { $0.isKeyWindow } ?? UIApplication.shared.windows.first!
     }
-}
-
-// MARK: - Data Extensions
-extension Data {
-    func sha256() -> Data {
-        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        withUnsafeBytes {
-            _ = CC_SHA256($0.baseAddress, CC_LONG(count), &hash)
-        }
-        return Data(hash)
-    }
-}
-
-// Add this import at the top
-import CommonCrypto
-
-// MARK: - eBay Token Response Model
-struct EbayTokenResponse: Codable {
-    let access_token: String
-    let token_type: String
-    let expires_in: Int
-    let refresh_token: String?
-    let scope: String?
-}
-
-// MARK: - eBay User Profile Model
-struct EbayUserProfile: Codable {
-    let userId: String?
-    let username: String?
-    let email: String?
-    let individualAccount: Bool?
-    let registrationMarketplaceId: String?
-    let businessAccount: Bool?
-}
-
-// MARK: - eBay Listing Capabilities
-struct EbayListingCapabilities {
-    let canList: Bool
-    let maxPhotos: Int
-    let supportedFormats: [String]
-    let sellerLevel: String
 }

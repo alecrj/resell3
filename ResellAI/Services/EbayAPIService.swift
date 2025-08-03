@@ -500,28 +500,7 @@ class EbayAPIService: ObservableObject {
         )
     }
     
-    // MARK: - eBay Listing Creation (Mock for now)
-    func createListing(item: InventoryItem, analysis: AnalysisResult, completion: @escaping (EbayListingResult) -> Void) {
-        isListing = true
-        
-        // Mock result - real implementation would use eBay Trading API
-        let result = EbayListingResult(
-            success: true,
-            listingId: "MOCK-\(UUID().uuidString.prefix(8))",
-            listingURL: "https://www.ebay.com/itm/mockitem",
-            error: nil
-        )
-        
-        print("🏪 Mock eBay listing created for: \(item.name)")
-        print("  • Title: \(analysis.ebayTitle)")
-        print("  • Price: $\(String(format: "%.2f", analysis.realisticPrice))")
-        print("  • Condition: \(analysis.ebayCondition.rawValue)")
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.isListing = false
-            completion(result)
-        }
-    }
+
     
     // MARK: - Service Health Check
     func performHealthCheck() -> EbayServiceHealthStatus {

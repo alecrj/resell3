@@ -183,40 +183,6 @@ class RealAIAnalysisService: ObservableObject {
     }
 }
 
-// MARK: - Supporting Data Structures
-struct MarketIntelligence {
-    let demand: DemandLevel
-    let competition: CompetitionLevel
-    let priceStability: PriceStability
-    let seasonalTrends: [String]
-    let marketInsights: [String]
-    
-    enum DemandLevel {
-        case high, medium, low
-    }
-    
-    enum PriceStability {
-        case stable, volatile, increasing, decreasing
-    }
-}
-
-struct AuthenticationResult {
-    let isAuthentic: Bool
-    let confidence: Double
-    let authenticityFactors: [String]
-    let warnings: [String]
-    let recommendations: [String]
-}
-
-struct PricingIntelligence {
-    let optimalPrice: Double
-    let priceRange: (min: Double, max: Double)
-    let quickSalePrice: Double
-    let maxProfitPrice: Double
-    let pricingStrategy: PricingStrategy
-    let confidenceLevel: Double
-    let marketFactors: [String]
-}
 
 // MARK: - Image Analysis Helpers
 extension RealAIAnalysisService {

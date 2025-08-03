@@ -564,14 +564,11 @@ class MarketDataService: ObservableObject {
 class RapidAPIMarketService {
     private let apiKey = Configuration.rapidAPIKey
     
-    // Try multiple RapidAPI eBay endpoints
+    // Single endpoint for eBay sold items (eBay Average Selling Price API by ecommet)
     private let endpoints = [
-        ("ebay-sold-listing-tracker.p.rapidapi.com", "/search"),
-        ("ebay-average-selling-price.p.rapidapi.com", "/search"),
-        ("ebay-search-result.p.rapidapi.com", "/search"),
-        ("ebay-data-analytics.p.rapidapi.com", "/sold-listings"),
-        ("ebay-scraper.p.rapidapi.com", "/sold-items")
+        ("ebay-average-selling-price.p.rapidapi.com", "/findCompletedItems")
     ]
+
     
     func getEbaySoldListings(query: String, completion: @escaping ([EbaySoldListing]) -> Void) {
         guard !apiKey.isEmpty else {
