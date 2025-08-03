@@ -722,3 +722,21 @@ struct RealProductData {
     let releaseYear: String
     let confidence: Double
 }
+// Add this to ResellAI/Models/Models.swift at the end of the file:
+
+// MARK: - eBay Listing Result
+struct EbayListingResult {
+    let success: Bool
+    let listingId: String?
+    let listingURL: String?
+    let error: String?
+    let timestamp: Date
+    
+    init(success: Bool, listingId: String? = nil, listingURL: String? = nil, error: String? = nil) {
+        self.success = success
+        self.listingId = listingId
+        self.listingURL = listingURL
+        self.error = error
+        self.timestamp = Date()
+    }
+}
