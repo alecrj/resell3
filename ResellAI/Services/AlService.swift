@@ -2,13 +2,13 @@
 //  AIService.swift
 //  ResellAI
 //
-//  Focused AI Service for Business Operations
+//  AI Service for Business Operations - No Duplicates
 //
 
 import SwiftUI
 import Foundation
 
-// MARK: - Focused AI Service for Business Operations
+// MARK: - AI Service for Business Operations
 class AIService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -413,34 +413,4 @@ struct EbayServiceHealthStatus {
     let listingWorking: Bool
     let overallHealthy: Bool
     let lastUpdated: Date
-}
-// Add this extension at the end of AlService.swift:
-
-// MARK: - eBay API Service Extension for Listing Creation
-extension EbayAPIService {
-    func authenticate(completion: @escaping (Bool) -> Void) {
-        // For Finding API, we just need the App ID
-        let hasAuth = !Configuration.ebayAPIKey.isEmpty
-        completion(hasAuth)
-    }
-    
-    func createListing(item: InventoryItem, analysis: AnalysisResult, completion: @escaping (EbayListingResult) -> Void) {
-        // For now, return a mock result since actual eBay listing requires OAuth
-        // The real implementation would use eBay Trading API or RESTful APIs
-        let result = EbayListingResult(
-            success: true,
-            listingId: "MOCK-\(UUID().uuidString.prefix(8))",
-            listingURL: "https://www.ebay.com/itm/mockitem",
-            error: nil
-        )
-        
-        print("🏪 Mock eBay listing created for: \(item.name)")
-        print("  • Title: \(analysis.ebayTitle)")
-        print("  • Price: $\(String(format: "%.2f", analysis.realisticPrice))")
-        print("  • Condition: \(analysis.ebayCondition.rawValue)")
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            completion(result)
-        }
-    }
 }

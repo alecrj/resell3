@@ -2,14 +2,14 @@
 //  OpenAIService.swift
 //  ResellAI
 //
-//  OpenAI Vision API Service with Real eBay Comp Integration - Fixed
+//  Fixed OpenAI Service with Better eBay Search Keywords
 //
 
 import SwiftUI
 import Foundation
 import Vision
 
-// MARK: - OpenAI Vision Service with Real Market Data (Fixed)
+// MARK: - Fixed OpenAI Vision Service with eBay-Optimized Keywords
 class WorkingOpenAIService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -20,7 +20,7 @@ class WorkingOpenAIService: ObservableObject {
     private let marketResearchService: MarketResearchService
     
     init() {
-        print("🤖 OpenAI Vision Service initialized with real eBay integration")
+        print("🤖 OpenAI Vision Service initialized with eBay-optimized keywords")
         self.marketResearchService = MarketResearchService()
         validateConfiguration()
     }
@@ -33,7 +33,7 @@ class WorkingOpenAIService: ObservableObject {
         }
     }
     
-    // MARK: - Main Analysis Function with Real eBay Data
+    // MARK: - Main Analysis Function with eBay Search Optimization
     func analyzeItem(images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             print("❌ No images provided for analysis")
@@ -57,9 +57,9 @@ class WorkingOpenAIService: ObservableObject {
         updateProgress(1, "Processing images...")
         let base64Images = convertImagesToBase64(images)
         
-        // Step 2: Product identification with AI vision
-        updateProgress(2, "Identifying product with AI vision...")
-        identifyProductWithPrecision(base64Images: base64Images) { [weak self] identification in
+        // Step 2: Product identification optimized for eBay search
+        updateProgress(2, "Identifying product for eBay search...")
+        identifyProductForEbaySearch(base64Images: base64Images) { [weak self] identification in
             guard let self = self, let identification = identification else {
                 DispatchQueue.main.async {
                     self?.isAnalyzing = false
@@ -68,8 +68,8 @@ class WorkingOpenAIService: ObservableObject {
                 return
             }
             
-            // Step 3-6: Real eBay market research
-            self.updateProgress(3, "Searching eBay for exact matches...")
+            // Step 3-6: eBay market research with optimized keywords
+            self.updateProgress(3, "Searching eBay with optimized keywords...")
             self.marketResearchService.researchProduct(
                 identification: identification,
                 condition: EbayCondition.good
@@ -86,10 +86,10 @@ class WorkingOpenAIService: ObservableObject {
                     return
                 }
                 
-                // Step 7: Process real market data
+                // Step 7: Process market data
                 self.updateProgress(7, "Processing market data...")
                 
-                // Step 8: Compile final result with real eBay comps
+                // Step 8: Compile final result
                 self.updateProgress(8, "Finalizing analysis...")
                 let finalResult = AnalysisResult(
                     identificationResult: identification,
@@ -118,8 +118,8 @@ class WorkingOpenAIService: ObservableObject {
         }
     }
     
-    // MARK: - Product Identification with AI Vision (Enhanced)
-    private func identifyProductWithPrecision(base64Images: [String], completion: @escaping (PrecisionIdentificationResult?) -> Void) {
+    // MARK: - Product Identification Optimized for eBay Search
+    private func identifyProductForEbaySearch(base64Images: [String], completion: @escaping (PrecisionIdentificationResult?) -> Void) {
         guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
             print("❌ Invalid OpenAI URL")
             completion(nil)
@@ -131,51 +131,49 @@ class WorkingOpenAIService: ObservableObject {
         request.setValue("Bearer \(openAIAPIKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        // Enhanced system prompt for better eBay comp matching
+        // Optimized system prompt for eBay search compatibility
         let systemPrompt = """
-        You are an expert product identifier specializing in items for resale. Your identification will be used to search eBay sold listings for pricing.
+        You are an expert product identifier that creates eBay-compatible search terms. Your goal is to identify products in a way that will find exact matches on eBay.
 
-        CRITICAL: Focus on details that will help find exact eBay matches:
-        1. EXACT model names, style codes, SKUs (these are crucial for eBay searches)
-        2. Brand identification from any visible logos, tags, or labels
-        3. Specific product lines and variants
-        4. Size information from tags (essential for shoes/clothing)
-        5. Color/colorway names (not just "blue" - be specific like "Royal Blue" or "Navy")
-        6. Any numbers, codes, or text visible on the product
-        7. Unique identifying features that distinguish this from similar items
+        CRITICAL FOR EBAY SEARCH SUCCESS:
+        1. Use SIMPLE, COMMON terms that people actually search for on eBay
+        2. Brand names should be exactly as they appear on eBay (Nike, not "nike" or "NIKE")
+        3. Product names should be simplified and searchable (avoid complex model names)
+        4. Focus on terms that will return results, not overly specific details
+        5. Size information is crucial for clothing/shoes
+        6. Avoid marketing language - use practical terms
 
-        Your identification will generate eBay search queries like:
-        - "[brand] [exact model name]"
-        - "[style code]"
-        - "[brand] [product line] [size] [colorway]"
+        eBay SEARCH EXAMPLES:
+        ✅ GOOD: "Champion hoodie", "Nike Air Force 1", "iPhone 13"
+        ❌ BAD: "Champion Powerblend Fleece Full-Zip Performance Hoodie", "Nike Air Force 1 Low '07 White/White Classic Basketball Shoe"
 
-        Return ONLY valid JSON without markdown formatting:
+        Return ONLY valid JSON without markdown:
         {
-            "exactModelName": "Most specific product name that would appear in eBay listings",
-            "brand": "Exact brand name",
-            "productLine": "Product line/series if applicable",
-            "styleVariant": "Specific style variant or version",
-            "styleCode": "Any style/SKU/model code visible (crucial for eBay matching)",
-            "colorway": "Specific color description (not generic colors)",
-            "size": "Size if visible on tags/labels",
+            "exactModelName": "Simple searchable product name (2-4 words max)",
+            "brand": "Exact brand name as it appears on eBay",
+            "productLine": "Simple product line if relevant",
+            "styleVariant": "Basic variant if needed",
+            "styleCode": "Only if clearly visible and searchable",
+            "colorway": "Simple color description",
+            "size": "Size if visible on tags",
             "category": "sneakers/clothing/electronics/accessories/home/collectibles/books/toys/sports/other",
-            "subcategory": "Most specific subcategory",
+            "subcategory": "Simple subcategory",
             "confidence": 0.95,
-            "identificationDetails": ["Specific features found", "Text/codes read", "Brand markings seen"],
-            "alternativePossibilities": ["Other similar products if uncertain"]
+            "identificationDetails": ["What you found that led to this identification"],
+            "alternativePossibilities": ["Other simple search terms that might work"]
         }
 
-        EXAMPLES of good identification:
-        - Nike shoes: exactModelName="Air Force 1 Low '07", styleCode="315122-111", colorway="White/White"
-        - Guess shirt: exactModelName="Los Angeles Triangle Logo Tee", brand="Guess"
-        - Electronics: exactModelName="iPhone 13 Pro", styleCode="A2483", size="128GB"
+        EXAMPLES of eBay-optimized identification:
+        - Champion hoodie → exactModelName="Champion Hoodie", brand="Champion"
+        - Nike shoes → exactModelName="Nike Air Force 1", brand="Nike"  
+        - iPhone → exactModelName="iPhone 13", brand="Apple"
 
-        Be extremely specific to help find exact eBay matches.
+        Focus on what buyers actually type into eBay search, not technical specifications.
         """
         
-        // Prepare image content for OpenAI
+        // Prepare image content
         var imageContent: [[String: Any]] = []
-        for base64Image in base64Images.prefix(4) {
+        for base64Image in base64Images.prefix(3) { // Reduced to 3 images for faster processing
             imageContent.append([
                 "type": "image_url",
                 "image_url": [
@@ -186,22 +184,25 @@ class WorkingOpenAIService: ObservableObject {
         }
         
         let userPrompt = """
-        Identify this product for eBay resale research. Look carefully for:
-        
-        PRIORITY 1 - Text/Numbers/Codes:
-        - Style codes, SKUs, model numbers
-        - Brand names on tags or labels
-        - Size information on tags
-        - Any text or numbers on the product
-        
-        PRIORITY 2 - Visual Identification:
-        - Brand logos and distinctive design elements
-        - Specific product features that distinguish it
-        - Color patterns and colorway names
-        - Construction details and materials
-        
-        Focus on details that would help someone find this exact item on eBay.
-        
+        Identify this product for eBay search. Focus on:
+
+        1. SIMPLE SEARCHABLE TERMS:
+        - What would someone type into eBay to find this exact item?
+        - Use common terms, not marketing language
+        - Keep product names short and practical
+
+        2. KEY INFORMATION FOR EBAY:
+        - Brand name (exactly as it appears on eBay)
+        - Basic product type (hoodie, shoes, phone, etc.)
+        - Size if visible (crucial for clothing/shoes)
+        - Simple color description
+        - Style code only if clearly visible
+
+        3. THINK LIKE AN EBAY BUYER:
+        - What search terms would find this item?
+        - Avoid overly complex model names
+        - Use terms that get results, not perfect accuracy
+
         Return ONLY the JSON object with no markdown formatting.
         """
         
@@ -224,7 +225,7 @@ class WorkingOpenAIService: ObservableObject {
         let requestBody: [String: Any] = [
             "model": "gpt-4o",
             "messages": messages,
-            "max_tokens": 1500,
+            "max_tokens": 1000, // Reduced for simpler responses
             "temperature": 0.1
         ]
         
@@ -236,7 +237,7 @@ class WorkingOpenAIService: ObservableObject {
             return
         }
         
-        print("🤖 Making OpenAI Vision API call for product identification...")
+        print("🤖 Making OpenAI API call for eBay-optimized identification...")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
@@ -251,13 +252,13 @@ class WorkingOpenAIService: ObservableObject {
                 return
             }
             
-            self?.processOpenAIResponse(data: data, completion: completion)
+            self?.processOpenAIResponseForEbay(data: data, completion: completion)
             
         }.resume()
     }
     
-    // MARK: - Process OpenAI Response
-    private func processOpenAIResponse(data: Data, completion: @escaping (PrecisionIdentificationResult?) -> Void) {
+    // MARK: - Process OpenAI Response for eBay Search
+    private func processOpenAIResponseForEbay(data: Data, completion: @escaping (PrecisionIdentificationResult?) -> Void) {
         do {
             let response = try JSONDecoder().decode(OpenAIResponse.self, from: data)
             
@@ -267,7 +268,7 @@ class WorkingOpenAIService: ObservableObject {
                 return
             }
             
-            print("🤖 Raw OpenAI identification response received")
+            print("🤖 OpenAI identification response received")
             
             // Clean and parse JSON response
             let cleanedContent = cleanMarkdownFromJSON(content)
@@ -276,13 +277,14 @@ class WorkingOpenAIService: ObservableObject {
                 do {
                     let productData = try JSONDecoder().decode(OpenAIProductIdentification.self, from: jsonData)
                     
+                    // Create simplified identification for better eBay search
                     let identification = PrecisionIdentificationResult(
-                        exactModelName: productData.exactModelName,
+                        exactModelName: simplifyProductName(productData.exactModelName),
                         brand: productData.brand,
                         productLine: productData.productLine,
                         styleVariant: productData.styleVariant,
                         styleCode: productData.styleCode ?? "",
-                        colorway: productData.colorway,
+                        colorway: simplifyColorway(productData.colorway),
                         size: productData.size,
                         category: ProductCategory(rawValue: productData.category) ?? .other,
                         subcategory: productData.subcategory,
@@ -292,7 +294,7 @@ class WorkingOpenAIService: ObservableObject {
                         alternativePossibilities: productData.alternativePossibilities
                     )
                     
-                    print("✅ Product identified successfully:")
+                    print("✅ eBay-optimized identification:")
                     print("  • Name: \(identification.exactModelName)")
                     print("  • Brand: \(identification.brand)")
                     print("  • Style Code: \(identification.styleCode)")
@@ -306,7 +308,6 @@ class WorkingOpenAIService: ObservableObject {
                     print("❌ Error parsing OpenAI product data: \(error)")
                     print("🔍 Attempting to parse partial content...")
                     
-                    // Try to extract partial information
                     if let partialIdentification = parsePartialIdentification(from: cleanedContent) {
                         print("✅ Partial identification successful")
                         completion(partialIdentification)
@@ -325,11 +326,51 @@ class WorkingOpenAIService: ObservableObject {
         }
     }
     
-    // MARK: - Barcode Analysis with Real Market Research
+    // MARK: - Simplify Product Names for eBay Search
+    private func simplifyProductName(_ name: String) -> String {
+        // Remove marketing terms and simplify
+        var simplified = name
+        
+        // Remove common marketing words
+        let marketingWords = ["Powerblend", "Performance", "Premium", "Ultimate", "Professional", "Advanced", "Classic", "Original", "Authentic", "Official"]
+        for word in marketingWords {
+            simplified = simplified.replacingOccurrences(of: word, with: "", options: .caseInsensitive)
+        }
+        
+        // Clean up extra spaces
+        simplified = simplified.replacingOccurrences(of: "  ", with: " ").trimmingCharacters(in: .whitespaces)
+        
+        // Limit to 4 words max for better eBay search
+        let words = simplified.components(separatedBy: " ").filter { !$0.isEmpty }
+        let limitedWords = Array(words.prefix(4))
+        
+        return limitedWords.joined(separator: " ")
+    }
+    
+    private func simplifyColorway(_ colorway: String) -> String {
+        // Simplify color descriptions
+        let colorMappings = [
+            "Oxford Gray": "Gray",
+            "Heather Gray": "Gray",
+            "True White": "White",
+            "Classic Black": "Black",
+            "Navy Blue": "Navy",
+            "Royal Blue": "Blue"
+        ]
+        
+        for (complex, simple) in colorMappings {
+            if colorway.contains(complex) {
+                return simple
+            }
+        }
+        
+        return colorway
+    }
+    
+    // MARK: - Barcode Analysis
     func analyzeBarcode(_ barcode: String, images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         updateProgress(1, "Looking up barcode...")
         
-        // Create identification from barcode
         let barcodeIdentification = PrecisionIdentificationResult(
             exactModelName: "Barcode Product",
             brand: "Unknown",
@@ -346,10 +387,8 @@ class WorkingOpenAIService: ObservableObject {
             alternativePossibilities: []
         )
         
-        // If we have images, analyze them too
         if !images.isEmpty {
             analyzeItem(images: images) { result in
-                // Enhance the result with barcode information
                 if let result = result {
                     var enhancedIdentification = result.identificationResult
                     if enhancedIdentification.styleCode.isEmpty {
@@ -370,7 +409,6 @@ class WorkingOpenAIService: ObservableObject {
                         )
                     }
                     
-                    // Create new result with enhanced identification
                     let enhancedResult = AnalysisResult(
                         identificationResult: enhancedIdentification,
                         marketAnalysis: result.marketAnalysis,
@@ -386,7 +424,6 @@ class WorkingOpenAIService: ObservableObject {
                 }
             }
         } else {
-            // Barcode-only analysis
             marketResearchService.researchProduct(identification: barcodeIdentification, condition: EbayCondition.good) { marketAnalysis in
                 let result = self.createFallbackAnalysis(identification: barcodeIdentification, images: [])
                 completion(result)
@@ -394,7 +431,7 @@ class WorkingOpenAIService: ObservableObject {
         }
     }
     
-    // MARK: - Helper Methods
+    // MARK: - Helper Methods (same as before)
     private func updateProgress(_ step: Int, _ message: String) {
         DispatchQueue.main.async {
             self.currentStep = step
@@ -419,12 +456,10 @@ class WorkingOpenAIService: ObservableObject {
     private func cleanMarkdownFromJSON(_ content: String) -> String {
         var cleaned = content
         
-        // Remove markdown code blocks
         cleaned = cleaned.replacingOccurrences(of: "```json", with: "", options: .caseInsensitive)
         cleaned = cleaned.replacingOccurrences(of: "```JSON", with: "", options: .caseInsensitive)
         cleaned = cleaned.replacingOccurrences(of: "```", with: "")
         
-        // Extract JSON object
         if let jsonStart = cleaned.firstIndex(of: "{"),
            let jsonEnd = cleaned.lastIndex(of: "}") {
             cleaned = String(cleaned[jsonStart...jsonEnd])
@@ -434,7 +469,6 @@ class WorkingOpenAIService: ObservableObject {
     }
     
     private func parsePartialIdentification(from json: String) -> PrecisionIdentificationResult? {
-        // Try to extract fields manually if JSON parsing fails
         var exactModelName = "Unknown Product"
         var brand = ""
         var size = ""
@@ -468,12 +502,12 @@ class WorkingOpenAIService: ObservableObject {
         }
         
         return PrecisionIdentificationResult(
-            exactModelName: exactModelName,
+            exactModelName: simplifyProductName(exactModelName),
             brand: brand,
             productLine: "",
             styleVariant: "",
             styleCode: styleCode,
-            colorway: colorway,
+            colorway: simplifyColorway(colorway),
             size: size,
             category: ProductCategory(rawValue: category) ?? .other,
             subcategory: "",
@@ -513,13 +547,10 @@ class WorkingOpenAIService: ObservableObject {
     }
     
     private func createFallbackAnalysis(identification: PrecisionIdentificationResult, images: [UIImage]) -> AnalysisResult {
-        // Estimate base pricing
         let basePrice = estimatePrice(for: identification)
         
-        // Create empty sold listings for fallback
         let soldListings: [EbaySoldListing] = []
         
-        // Create basic price range
         let priceRange = EbayPriceRange(
             newWithTags: basePrice * 1.0,
             newWithoutTags: basePrice * 0.95,
@@ -533,7 +564,6 @@ class WorkingOpenAIService: ObservableObject {
             dateRange: "No data available"
         )
         
-        // Create minimal market data
         let marketData = EbayMarketData(
             soldListings: soldListings,
             priceRange: priceRange,
@@ -602,7 +632,6 @@ class WorkingOpenAIService: ObservableObject {
         let brand = identification.brand.lowercased()
         let category = identification.category
         
-        // Brand-specific estimates
         if brand.contains("nike") || brand.contains("jordan") {
             return category == .sneakers ? 120.0 : 45.0
         } else if brand.contains("adidas") {
@@ -611,9 +640,10 @@ class WorkingOpenAIService: ObservableObject {
             return 350.0
         } else if brand.contains("supreme") {
             return 200.0
+        } else if brand.contains("champion") {
+            return category == .clothing ? 25.0 : 30.0
         }
         
-        // Category-based estimates
         switch category {
         case .sneakers: return 80.0
         case .electronics: return 150.0

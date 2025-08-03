@@ -2,13 +2,13 @@
 //  MarketResearchService.swift
 //  ResellAI
 //
-//  Real Market Research with eBay Sold Comp Integration - Fixed
+//  Fixed Market Research with Sequential eBay Searches
 //
 
 import SwiftUI
 import Foundation
 
-// MARK: - Real Market Research Service Using eBay Sold Comps
+// MARK: - Fixed Market Research Service with Sequential Searches
 class MarketResearchService: ObservableObject {
     @Published var isResearching = false
     @Published var researchProgress = "Ready"
@@ -19,7 +19,7 @@ class MarketResearchService: ObservableObject {
         print("📊 Market Research Service initialized with real eBay integration")
     }
     
-    // MARK: - Main Product Research with Real eBay Data
+    // MARK: - Main Product Research with Sequential eBay Searches
     func researchProduct(
         identification: PrecisionIdentificationResult,
         condition: EbayCondition,
@@ -27,15 +27,15 @@ class MarketResearchService: ObservableObject {
     ) {
         
         isResearching = true
-        researchProgress = "Researching market data..."
+        researchProgress = "Creating search strategy..."
         
         print("🔍 Starting market research for: \(identification.exactModelName)")
         
-        // Create comprehensive search queries from AI identification
-        let searchQueries = createSearchQueries(from: identification)
+        // Create optimized search queries from AI identification
+        let searchQueries = createOptimizedSearchQueries(from: identification)
         
-        // Search eBay for real sold comps using multiple queries
-        ebayAPIService.searchWithMultipleQueries(keywordSets: searchQueries) { [weak self] soldListings in
+        // Search eBay sequentially to avoid rate limits
+        searchEbaySequentially(searchQueries: searchQueries) { [weak self] soldListings in
             guard let self = self else { return }
             
             DispatchQueue.main.async {
@@ -59,55 +59,47 @@ class MarketResearchService: ObservableObject {
         }
     }
     
-    // MARK: - Create Search Queries from AI Identification
-    private func createSearchQueries(from identification: PrecisionIdentificationResult) -> [[String]] {
+    // MARK: - Create Optimized Search Queries (Simplified for Better Results)
+    private func createOptimizedSearchQueries(from identification: PrecisionIdentificationResult) -> [[String]] {
         var queries: [[String]] = []
         
-        // Query 1: Most specific - Style code if available
-        if !identification.styleCode.isEmpty {
-            var query1 = [identification.styleCode]
+        // Query 1: Brand + simplified model name (most effective)
+        if !identification.brand.isEmpty {
+            let modelWords = identification.exactModelName.components(separatedBy: " ")
+            let keyWords = modelWords.filter { word in
+                word.count > 2 && !["the", "and", "or", "with", "for"].contains(word.lowercased())
+            }
+            
+            if !keyWords.isEmpty {
+                let query1 = [identification.brand] + Array(keyWords.prefix(2))
+                queries.append(query1)
+            }
+        }
+        
+        // Query 2: Just brand + category for broader results
+        if !identification.brand.isEmpty {
+            let categoryKeyword = getCategoryKeyword(identification.category)
+            if !categoryKeyword.isEmpty {
+                let query2 = [identification.brand, categoryKeyword]
+                queries.append(query2)
+            }
+        }
+        
+        // Query 3: Style code if available and meaningful
+        if !identification.styleCode.isEmpty && identification.styleCode.count > 3 {
+            let query3 = [identification.styleCode]
             if !identification.brand.isEmpty {
-                query1.insert(identification.brand, at: 0)
+                query3.insert(identification.brand, at: 0)
             }
-            queries.append(query1)
-        }
-        
-        // Query 2: Brand + exact model name
-        if !identification.brand.isEmpty && !identification.exactModelName.isEmpty {
-            let query2 = [identification.brand, identification.exactModelName]
-            queries.append(query2)
-        }
-        
-        // Query 3: Brand + product line + key details
-        if !identification.brand.isEmpty && !identification.productLine.isEmpty {
-            var query3 = [identification.brand, identification.productLine]
-            
-            // Add size if available and relevant (mainly for shoes/clothing)
-            if !identification.size.isEmpty &&
-               (identification.category == .sneakers || identification.category == .clothing) {
-                query3.append("size")
-                query3.append(identification.size)
-            }
-            
-            // Add colorway if specific
-            if !identification.colorway.isEmpty && identification.colorway.count > 3 {
-                query3.append(identification.colorway)
-            }
-            
             queries.append(query3)
         }
         
-        // Query 4: Fallback - just the exact model name
-        if !identification.exactModelName.isEmpty {
-            queries.append([identification.exactModelName])
-        }
-        
-        // Query 5: Brand only if no other queries worked
+        // Fallback: Just brand name if no other queries
         if queries.isEmpty && !identification.brand.isEmpty {
             queries.append([identification.brand])
         }
         
-        print("🔍 Generated \(queries.count) search queries for eBay:")
+        print("🔍 Generated \(queries.count) optimized search queries:")
         for (index, query) in queries.enumerated() {
             print("  Query \(index + 1): \(query.joined(separator: " "))")
         }
@@ -115,7 +107,88 @@ class MarketResearchService: ObservableObject {
         return queries
     }
     
-    // MARK: - Create Market Analysis from Real eBay Comps
+    // MARK: - Get Category Keyword for Search
+    private func getCategoryKeyword(_ category: ProductCategory) -> String {
+        switch category {
+        case .sneakers: return "shoes"
+        case .clothing: return "shirt"
+        case .electronics: return "phone"
+        case .accessories: return "bag"
+        case .home: return "home"
+        case .collectibles: return "collectible"
+        case .books: return "book"
+        case .toys: return "toy"
+        case .sports: return "sports"
+        case .other: return ""
+        }
+    }
+    
+    // MARK: - Sequential eBay Search to Avoid Rate Limits
+    private func searchEbaySequentially(
+        searchQueries: [[String]],
+        completion: @escaping ([EbaySoldListing]) -> Void
+    ) {
+        
+        var allResults: [EbaySoldListing] = []
+        var queryIndex = 0
+        
+        func searchNext() {
+            guard queryIndex < searchQueries.count else {
+                // Remove duplicates and return results
+                let uniqueResults = removeDuplicates(from: allResults)
+                completion(uniqueResults)
+                return
+            }
+            
+            let keywords = searchQueries[queryIndex]
+            queryIndex += 1
+            
+            researchProgress = "Searching eBay (\(queryIndex)/\(searchQueries.count))..."
+            
+            print("🔍 Sequential search \(queryIndex)/\(searchQueries.count): \(keywords.joined(separator: " "))")
+            
+            ebayAPIService.getSoldComps(keywords: keywords) { results in
+                print("📊 Search \(queryIndex) returned \(results.count) results")
+                allResults.append(contentsOf: results)
+                
+                // If we found good results, we might stop early
+                if results.count >= 10 && queryIndex >= 2 {
+                    print("✅ Found sufficient results (\(allResults.count) total), stopping search")
+                    let uniqueResults = self.removeDuplicates(from: allResults)
+                    completion(uniqueResults)
+                    return
+                }
+                
+                // Wait 2 seconds before next search to respect rate limits
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    searchNext()
+                }
+            }
+        }
+        
+        searchNext()
+    }
+    
+    // MARK: - Remove Duplicates
+    private func removeDuplicates(from listings: [EbaySoldListing]) -> [EbaySoldListing] {
+        var uniqueListings: [EbaySoldListing] = []
+        var seenSignatures: Set<String> = []
+        
+        for listing in listings {
+            // Create signature from title + price (more flexible)
+            let titleWords = listing.title.lowercased().components(separatedBy: " ").prefix(5).joined(separator: " ")
+            let signature = "\(titleWords)-\(String(format: "%.0f", listing.price))"
+            
+            if !seenSignatures.contains(signature) {
+                seenSignatures.insert(signature)
+                uniqueListings.append(listing)
+            }
+        }
+        
+        return uniqueListings.sorted { $0.soldDate > $1.soldDate }
+    }
+    
+    // MARK: - Create Market Analysis from Real eBay Comps (unchanged logic)
     private func createMarketAnalysisFromComps(
         identification: PrecisionIdentificationResult,
         soldListings: [EbaySoldListing],
@@ -187,7 +260,7 @@ class MarketResearchService: ObservableObject {
         )
     }
     
-    // MARK: - Create Price Range from Real Comps - FIXED
+    // MARK: - Create Price Range from Real Comps
     private func createPriceRangeFromComps(soldListings: [EbaySoldListing]) -> EbayPriceRange {
         let prices = soldListings.map { $0.price }
         let totalAveragePrice = prices.isEmpty ? 0 : prices.reduce(0, +) / Double(prices.count)
@@ -605,6 +678,8 @@ class MarketResearchService: ObservableObject {
             return 350.0
         } else if brand.contains("supreme") || brand.contains("off-white") {
             return 200.0
+        } else if brand.contains("champion") {
+            return category == .clothing ? 25.0 : 30.0
         }
         
         // Category-based pricing
