@@ -59,7 +59,7 @@ class MarketResearchService: ObservableObject {
         }
     }
     
-    // MARK: - Create Optimized Search Queries (Simplified for Better Results)
+    // MARK: - Create Optimized Search Queries (Fixed mutation error)
     private func createOptimizedSearchQueries(from identification: PrecisionIdentificationResult) -> [[String]] {
         var queries: [[String]] = []
         
@@ -85,9 +85,9 @@ class MarketResearchService: ObservableObject {
             }
         }
         
-        // Query 3: Style code if available and meaningful
+        // Query 3: Style code if available and meaningful (FIXED: changed to var)
         if !identification.styleCode.isEmpty && identification.styleCode.count > 3 {
-            let query3 = [identification.styleCode]
+            var query3 = [identification.styleCode]
             if !identification.brand.isEmpty {
                 query3.insert(identification.brand, at: 0)
             }
@@ -188,7 +188,7 @@ class MarketResearchService: ObservableObject {
         return uniqueListings.sorted { $0.soldDate > $1.soldDate }
     }
     
-    // MARK: - Create Market Analysis from Real eBay Comps (unchanged logic)
+    // MARK: - Create Market Analysis from Real eBay Comps
     private func createMarketAnalysisFromComps(
         identification: PrecisionIdentificationResult,
         soldListings: [EbaySoldListing],
