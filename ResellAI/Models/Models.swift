@@ -190,6 +190,50 @@ struct EbayAuthToken: Codable {
     }
 }
 
+// MARK: - eBay User Profile (Fixed)
+struct EbayUserProfile: Codable {
+    let userId: String
+    let username: String
+    let email: String?
+    let registrationDate: String?
+    let registrationMarketplaceId: String
+    
+    init(userId: String, username: String, email: String? = nil, registrationDate: String? = nil, registrationMarketplaceId: String = "EBAY_US") {
+        self.userId = userId
+        self.username = username
+        self.email = email
+        self.registrationDate = registrationDate
+        self.registrationMarketplaceId = registrationMarketplaceId
+    }
+}
+
+// MARK: - eBay Token Response
+struct EbayTokenResponse: Codable {
+    let access_token: String
+    let token_type: String
+    let expires_in: Int
+    let refresh_token: String?
+}
+
+// MARK: - eBay Listing Capabilities (Fixed)
+struct EbayListingCapabilities: Codable {
+    let canList: Bool
+    let maxPhotos: Int
+    let maxTitleLength: Int
+    let supportedFormats: [String]
+    let supportedCategories: [String]
+    let sellerLevel: String
+    
+    init(canList: Bool, maxPhotos: Int, maxTitleLength: Int = 80, supportedFormats: [String], supportedCategories: [String], sellerLevel: String) {
+        self.canList = canList
+        self.maxPhotos = maxPhotos
+        self.maxTitleLength = maxTitleLength
+        self.supportedFormats = supportedFormats
+        self.supportedCategories = supportedCategories
+        self.sellerLevel = sellerLevel
+    }
+}
+
 // MARK: - API Response Models
 struct OpenAIAnalysisResponse: Codable {
     let title: String
@@ -200,26 +244,6 @@ struct OpenAIAnalysisResponse: Codable {
     let confidence: Double
     let keyFeatures: [String]
     let searchTerms: [String]
-}
-
-// MARK: - Legacy eBay Models (for EbayAuthManager compatibility)
-struct EbayUserProfile: Codable {
-    let userId: String
-    let email: String?
-    let registrationDate: String?
-}
-
-struct EbayTokenResponse: Codable {
-    let access_token: String
-    let token_type: String
-    let expires_in: Int
-    let refresh_token: String?
-}
-
-struct EbayListingCapabilities: Codable {
-    let maxPhotos: Int
-    let maxTitleLength: Int
-    let supportedCategories: [String]
 }
 
 // MARK: - Error Types

@@ -12,12 +12,14 @@ struct ContentView: View {
     @StateObject private var appState = AppState()
     @StateObject private var openAIService = OpenAIService()
     @StateObject private var ebayService = EbayService()
+    @StateObject private var inventoryManager = InventoryManager()
     
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var selectedImages: [UIImage] = []
     @State private var showingPhotoPicker = false
     @State private var showingCamera = false
     @State private var selectedPrice: Double = 0
+    @State private var showingSettings = false
     
     var body: some View {
         NavigationView {
@@ -42,6 +44,13 @@ struct ContentView: View {
                 .padding()
             }
             .navigationTitle("ResellAI")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { showingSettings = true }) {
+                        Image(systemName: "gear")
+                    }
+                }
+            }
             .alert("Error", isPresented: .constant(appState.errorMessage != nil)) {
                 Button("OK") { appState.clearError() }
             } message: {
@@ -56,9 +65,15 @@ struct ContentView: View {
                     showingCamera = false
                 }
             }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+            }
         }
         .onAppear {
             Configuration.validateConfiguration()
+        }
+        .onOpenURL { url in
+            handleIncomingURL(url)
         }
     }
     
@@ -66,13 +81,26 @@ struct ContentView: View {
     
     private var headerSection: some View {
         VStack(spacing: 10) {
-            Text("Upload Photo → AI Analysis → eBay Listing")
-                .font(.headline)
-                .multilineTextAlignment(.center)
+            HStack {
+                VStack(alignment: .leading) {
+                    Text("Photo → AI Analysis → eBay Listing")
+                        .font(.headline)
+                    Text("The complete resell workflow")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
             
             if appState.isAnalyzing {
-                ProgressView("Analyzing item...")
-                    .progressViewStyle(CircularProgressViewStyle())
+                HStack {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Analyzing item and finding eBay comps...")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 5)
             }
         }
         .padding()
@@ -104,6 +132,7 @@ struct ContentView: View {
                 .background(Color.blue)
                 .cornerRadius(12)
             }
+            .buttonStyle(ScaleButtonStyle())
         }
         .padding()
         .background(Color.gray.opacity(0.1))
@@ -114,6 +143,16 @@ struct ContentView: View {
     
     private var mainWorkflowSection: some View {
         VStack(spacing: 20) {
+            // Connected Status
+            HStack {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("eBay Connected")
+                    .fontWeight(.medium)
+                Spacer()
+            }
+            .padding(.horizontal)
+            
             // Photo Upload Section
             VStack(spacing: 15) {
                 Text("1. Upload Photos")
@@ -126,6 +165,9 @@ struct ContentView: View {
                                 .font(.system(size: 40))
                             Text("Take or Select Photos")
                                 .font(.headline)
+                            Text("Upload photos of your item")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                         .foregroundColor(.blue)
                         .frame(height: 120)
@@ -137,6 +179,7 @@ struct ContentView: View {
                                 .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, dash: [5]))
                         )
                     }
+                    .buttonStyle(ScaleButtonStyle())
                 } else {
                     photoPreviewSection
                 }
@@ -156,6 +199,8 @@ struct ContentView: View {
                         Button("Clear") {
                             selectedImages.removeAll()
                             selectedPhotos.removeAll()
+                            appState.currentAnalysis = nil
+                            selectedPrice = 0
                         }
                         .buttonStyle(.bordered)
                         .foregroundColor(.red)
@@ -176,6 +221,7 @@ struct ContentView: View {
                     .background(Color.green)
                     .cornerRadius(12)
                 }
+                .buttonStyle(ScaleButtonStyle())
             }
         }
     }
@@ -218,29 +264,41 @@ struct ContentView: View {
                     .font(.title2)
                     .fontWeight(.semibold)
                 
-                HStack {
-                    Text("Item:")
-                        .fontWeight(.medium)
-                    Text(analysis.title)
-                }
-                
-                HStack {
-                    Text("Brand:")
-                        .fontWeight(.medium)
-                    Text(analysis.brand)
-                }
-                
-                HStack {
-                    Text("Condition:")
-                        .fontWeight(.medium)
-                    Text(analysis.condition.rawValue)
-                }
-                
-                HStack {
-                    Text("Confidence:")
-                        .fontWeight(.medium)
-                    Text("\(Int(analysis.confidence * 100))%")
-                        .foregroundColor(analysis.confidence > 0.8 ? .green : .orange)
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("Item:")
+                            .fontWeight(.medium)
+                            .frame(width: 80, alignment: .leading)
+                        Text(analysis.title)
+                            .multilineTextAlignment(.leading)
+                        Spacer()
+                    }
+                    
+                    HStack {
+                        Text("Brand:")
+                            .fontWeight(.medium)
+                            .frame(width: 80, alignment: .leading)
+                        Text(analysis.brand)
+                        Spacer()
+                    }
+                    
+                    HStack {
+                        Text("Condition:")
+                            .fontWeight(.medium)
+                            .frame(width: 80, alignment: .leading)
+                        ConditionBadgeView(condition: analysis.condition)
+                        Spacer()
+                    }
+                    
+                    HStack {
+                        Text("Confidence:")
+                            .fontWeight(.medium)
+                            .frame(width: 80, alignment: .leading)
+                        Text("\(Int(analysis.confidence * 100))%")
+                            .foregroundColor(analysis.confidence > 0.8 ? .green : .orange)
+                            .fontWeight(.medium)
+                        Spacer()
+                    }
                 }
             }
             .padding()
@@ -290,20 +348,31 @@ struct ContentView: View {
     }
     
     private func pricingOption(strategy: PricingStrategy, price: Double, isSelected: Bool) -> some View {
-        Button(action: { selectedPrice = price }) {
+        Button(action: {
+            selectedPrice = price
+            appState.selectedPricingStrategy = strategy
+        }) {
             HStack {
                 VStack(alignment: .leading) {
-                    Text(strategy.rawValue)
-                        .font(.headline)
-                        .foregroundColor(.primary)
+                    HStack {
+                        Text(strategy.rawValue)
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Spacer()
+                        if isSelected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.blue)
+                        }
+                    }
                     Text(strategy.description)
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
                 }
                 
                 Spacer()
                 
-                Text("$\(price, specifier: "%.2f")")
+                Text(String(format: "$%.2f", price))
                     .font(.title2)
                     .fontWeight(.semibold)
                     .foregroundColor(isSelected ? .white : .primary)
@@ -319,34 +388,51 @@ struct ContentView: View {
     
     private func ebayCompsSection(_ comps: [EbayComp]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Recent eBay Sales (\(comps.count) found)")
+            Text("eBay Sold Comparisons (\(comps.count) found)")
                 .font(.headline)
             
-            LazyVStack(spacing: 8) {
-                ForEach(comps.prefix(5)) { comp in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(comp.title)
-                                .font(.subheadline)
-                                .lineLimit(2)
-                            Text(comp.condition)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(formatDate(comp.soldDate))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+            if comps.isEmpty {
+                Text("No recent sales found for this item")
+                    .foregroundColor(.secondary)
+                    .padding()
+            } else {
+                LazyVStack(spacing: 8) {
+                    ForEach(comps.prefix(5)) { comp in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(comp.title)
+                                    .font(.subheadline)
+                                    .lineLimit(2)
+                                HStack {
+                                    Text(comp.condition)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text("•")
+                                        .foregroundColor(.secondary)
+                                    Text(formatDate(comp.soldDate))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            
+                            Spacer()
+                            
+                            VStack(alignment: .trailing) {
+                                Text(String(format: "$%.2f", comp.totalPrice))
+                                    .font(.headline)
+                                    .fontWeight(.semibold)
+                                if comp.shippingCost > 0 {
+                                    Text(String(format: "+$%.2f ship", comp.shippingCost))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
                         }
-                        
-                        Spacer()
-                        
-                        Text("$\(comp.totalPrice, specifier: "%.2f")")
-                            .font(.headline)
-                            .fontWeight(.semibold)
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(Color.gray.opacity(0.05))
+                        .cornerRadius(8)
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    .background(Color.gray.opacity(0.05))
-                    .cornerRadius(8)
                 }
             }
         }
@@ -362,6 +448,7 @@ struct ContentView: View {
             if selectedPrice == 0 {
                 Text("Select a price to continue")
                     .foregroundColor(.secondary)
+                    .padding()
             } else {
                 Button(action: { postToEbay(analysis) }) {
                     HStack {
@@ -371,7 +458,7 @@ struct ContentView: View {
                         } else {
                             Image(systemName: "square.and.arrow.up")
                         }
-                        Text("4. Post to eBay - $\(selectedPrice, specifier: "%.2f")")
+                        Text("4. Post to eBay - \(String(format: "$%.2f", selectedPrice))")
                     }
                     .font(.headline)
                     .foregroundColor(.white)
@@ -379,6 +466,7 @@ struct ContentView: View {
                     .background(appState.isPostingToEbay ? Color.gray : Color.blue)
                     .cornerRadius(12)
                 }
+                .buttonStyle(ScaleButtonStyle())
                 .disabled(appState.isPostingToEbay)
             }
         }
@@ -393,20 +481,33 @@ struct ContentView: View {
             
             LazyVStack(spacing: 8) {
                 ForEach(appState.recentAnalyses.prefix(3)) { analysis in
-                    HStack {
-                        Text(analysis.title)
-                            .font(.subheadline)
-                            .lineLimit(1)
-                        
-                        Spacer()
-                        
-                        Text("$\(analysis.suggestedPrice, specifier: "%.2f")")
-                            .font(.headline)
-                            .fontWeight(.medium)
+                    Button(action: {
+                        appState.currentAnalysis = analysis
+                        selectedPrice = analysis.suggestedPrice
+                    }) {
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(analysis.title)
+                                    .font(.subheadline)
+                                    .lineLimit(1)
+                                    .multilineTextAlignment(.leading)
+                                Text(analysis.brand)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Text(String(format: "$%.2f", analysis.suggestedPrice))
+                                .font(.headline)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundColor(.primary)
+                        .padding()
+                        .background(Color.gray.opacity(0.05))
+                        .cornerRadius(8)
                     }
-                    .padding()
-                    .background(Color.gray.opacity(0.05))
-                    .cornerRadius(8)
+                    .buttonStyle(PlainButtonStyle())
                 }
             }
         }
@@ -432,11 +533,22 @@ struct ContentView: View {
         Task {
             appState.isAnalyzing = true
             selectedPrice = 0
+            appState.currentAnalysis = nil
             
             do {
+                print("🔍 Starting item analysis...")
                 let analysis = try await openAIService.analyzeItem(photos: selectedImages)
+                print("✅ Analysis complete: \(analysis.title)")
                 appState.addAnalysis(analysis)
+                
+                // Auto-select competitive pricing
+                selectedPrice = analysis.suggestedPrice
+                
+                // Add to inventory
+                inventoryManager.addItem(from: analysis, listingPrice: analysis.suggestedPrice)
+                
             } catch {
+                print("❌ Analysis failed: \(error)")
                 appState.setError(error as? ResellAIError ?? .analysisError(error.localizedDescription))
             }
             
@@ -451,13 +563,22 @@ struct ContentView: View {
             appState.isPostingToEbay = true
             
             do {
+                print("📤 Creating eBay listing...")
                 let listing = EbayListing(from: analysis, price: selectedPrice)
                 let listingID = try await ebayService.postListing(listing)
                 
-                // Success - could show success message or navigate to listing
-                print("Successfully posted listing: \(listingID)")
+                print("✅ Successfully posted listing: \(listingID)")
+                
+                // Update inventory status
+                if let inventoryItem = inventoryManager.inventory.first(where: { $0.title == analysis.title }) {
+                    inventoryManager.updateItemStatus(inventoryItem.id, status: .listed)
+                }
+                
+                // Show success and reset for next item
+                resetForNextItem()
                 
             } catch {
+                print("❌ eBay listing failed: \(error)")
                 appState.setError(error as? ResellAIError ?? .ebayListingError(error.localizedDescription))
             }
             
@@ -465,15 +586,68 @@ struct ContentView: View {
         }
     }
     
+    private func resetForNextItem() {
+        selectedImages.removeAll()
+        selectedPhotos.removeAll()
+        selectedPrice = 0
+        appState.currentAnalysis = nil
+    }
+    
     private func removeImage(at index: Int) {
         selectedImages.remove(at: index)
-        selectedPhotos.remove(at: index)
+        if index < selectedPhotos.count {
+            selectedPhotos.remove(at: index)
+        }
     }
     
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
         return formatter.string(from: date)
+    }
+    
+    private func handleIncomingURL(_ url: URL) {
+        print("📲 Received deep link URL: \(url.absoluteString)")
+        
+        // Handle eBay OAuth callback
+        if url.scheme == "resellai" && url.host == "auth" {
+            print("🔐 Processing eBay OAuth callback...")
+            
+            Task {
+                do {
+                    try await ebayService.handleAuthCallback(url: url)
+                    print("✅ eBay authentication successful!")
+                    
+                    // Show success message after a brief delay
+                    await MainActor.run {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            showSuccessAlert(
+                                title: "eBay Connected!",
+                                message: "Your eBay account is now connected. You can analyze items and post listings automatically."
+                            )
+                        }
+                    }
+                    
+                } catch {
+                    print("❌ eBay authentication failed: \(error.localizedDescription)")
+                    await MainActor.run {
+                        appState.setError(.ebayAuthError(error.localizedDescription))
+                    }
+                }
+            }
+        } else {
+            print("⚠️ Unhandled URL scheme: \(url.scheme ?? "nil") host: \(url.host ?? "nil")")
+        }
+    }
+    
+    private func showSuccessAlert(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first {
+            window.rootViewController?.present(alert, animated: true)
+        }
     }
 }
 
@@ -495,6 +669,8 @@ extension ContentView {
     
     private func loadSelectedPhotos(_ photos: [PhotosPickerItem]) {
         selectedImages.removeAll()
+        appState.currentAnalysis = nil
+        selectedPrice = 0
         
         for photo in photos {
             photo.loadTransferable(type: Data.self) { result in

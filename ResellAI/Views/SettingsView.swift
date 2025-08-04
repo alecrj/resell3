@@ -2,7 +2,7 @@
 //  SettingsView.swift
 //  ResellAI
 //
-//  App settings and configuration
+//  App settings and configuration with eBay OAuth debugging
 //
 
 import SwiftUI
@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var showingConfigStatus = false
     @State private var testingAPI = false
     @State private var apiTestResult: String = ""
+    @State private var oauthDebugResult: String = ""
     
     var body: some View {
         NavigationView {
@@ -91,10 +92,16 @@ struct SettingsView: View {
                 }
                 .foregroundColor(.red)
             } else {
-                Button("Connect to eBay") {
-                    if let authURL = ebayService.startOAuthFlow() {
-                        UIApplication.shared.open(authURL)
+                VStack(alignment: .leading, spacing: 8) {
+                    Button("Connect to eBay") {
+                        if let authURL = ebayService.startOAuthFlow() {
+                            UIApplication.shared.open(authURL)
+                        }
                     }
+                    
+                    Text("⚠️ If you get 'invalid_request' error, check redirect URI in eBay console")
+                        .font(.caption)
+                        .foregroundColor(.orange)
                 }
             }
             
@@ -102,6 +109,14 @@ struct SettingsView: View {
                 Text("Environment")
                 Spacer()
                 Text(Configuration.ebayEnvironment)
+                    .foregroundColor(.secondary)
+            }
+            
+            HStack {
+                Text("Redirect URI")
+                Spacer()
+                Text("resellai://auth/ebay")
+                    .font(.caption)
                     .foregroundColor(.secondary)
             }
         }
@@ -135,7 +150,7 @@ struct SettingsView: View {
             HStack {
                 Text("Total Value")
                 Spacer()
-                Text("$\(inventoryManager.totalValue, specifier: "%.2f")")
+                Text(String(format: "$%.2f", inventoryManager.totalValue))
                     .fontWeight(.medium)
             }
             
@@ -163,6 +178,17 @@ struct SettingsView: View {
                     .foregroundColor(apiTestResult.contains("✅") ? .green : .red)
             }
             
+            Button("Debug eBay OAuth URL") {
+                debugEbayOAuth()
+            }
+            .foregroundColor(.blue)
+            
+            if !oauthDebugResult.isEmpty {
+                Text(oauthDebugResult)
+                    .font(.caption)
+                    .foregroundColor(.blue)
+            }
+            
             Button("View Cost Estimates") {
                 showCostEstimates()
             }
@@ -173,6 +199,7 @@ struct SettingsView: View {
             }
         }
     }
+    
     
     // MARK: - Actions
     
@@ -221,6 +248,37 @@ struct SettingsView: View {
                 apiTestResult = results.joined(separator: "\n")
                 testingAPI = false
             }
+        }
+    }
+    
+    private func debugEbayOAuth() {
+        let ebayService = EbayService()
+        
+        if let oauthURL = ebayService.startOAuthFlow() {
+            var debug = "🧪 Generated OAuth URL:\n"
+            debug += "\(oauthURL.absoluteString)\n\n"
+            debug += "🔍 URL Components:\n"
+            
+            if let components = URLComponents(url: oauthURL, resolvingAgainstBaseURL: false) {
+                debug += "• Base: \(components.scheme ?? "")://\(components.host ?? "")\(components.path)\n"
+                debug += "• Query Parameters:\n"
+                
+                components.queryItems?.forEach { item in
+                    debug += "  - \(item.name): \(item.value ?? "nil")\n"
+                }
+            }
+            
+            debug += "\n📋 URL copied to clipboard!"
+            
+            // Copy to clipboard for easy testing
+            UIPasteboard.general.string = oauthURL.absoluteString
+            
+            oauthDebugResult = debug
+            print(debug)
+            
+        } else {
+            oauthDebugResult = "❌ Failed to generate OAuth URL"
+            print("❌ Failed to generate OAuth URL")
         }
     }
     
@@ -298,8 +356,31 @@ struct ConfigurationStatusView: View {
                         ConfigDetailRow(key: "Client Secret", value: Configuration.ebayClientSecret.isEmpty ? "Not Set" : "Set")
                         ConfigDetailRow(key: "Dev ID", value: Configuration.ebayDevId.isEmpty ? "Not Set" : "Set")
                         ConfigDetailRow(key: "Environment", value: Configuration.ebayEnvironment)
-                        ConfigDetailRow(key: "Redirect URI", value: Configuration.ebayRedirectURI)
+                        ConfigDetailRow(key: "Redirect URI", value: "resellai://auth/ebay")
                     }
+                    
+                    Divider()
+                    
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("eBay OAuth Fix:")
+                            .font(.headline)
+                        
+                        Text("If you get 'invalid_request' error:")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        
+                        Text("1. Go to: https://developer.ebay.com/my/keys")
+                            .font(.caption)
+                        Text("2. Find your app: AlecRodr-resell-PRD-d0bc91504-be3e553a")
+                            .font(.caption)
+                        Text("3. Update 'OAuth redirect URIs' to: resellai://auth/ebay")
+                            .font(.caption)
+                        Text("4. Save changes and try again")
+                            .font(.caption)
+                    }
+                    .padding()
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(8)
                     
                     Divider()
                     
@@ -308,9 +389,9 @@ struct ConfigurationStatusView: View {
                             .font(.headline)
                         
                         ConfigDetailRow(key: "Max Photos", value: "\(Configuration.maxPhotos)")
-                        ConfigDetailRow(key: "Default Shipping", value: "$\(Configuration.defaultShippingCost, specifier: "%.2f")")
-                        ConfigDetailRow(key: "eBay Fee Rate", value: "\(Configuration.defaultEbayFeeRate * 100, specifier: "%.2f")%")
-                        ConfigDetailRow(key: "PayPal Fee Rate", value: "\(Configuration.defaultPayPalFeeRate * 100, specifier: "%.2f")%")
+                        ConfigDetailRow(key: "Default Shipping", value: String(format: "$%.2f", Configuration.defaultShippingCost))
+                        ConfigDetailRow(key: "eBay Fee Rate", value: String(format: "%.2f%%", Configuration.defaultEbayFeeRate * 100))
+                        ConfigDetailRow(key: "PayPal Fee Rate", value: String(format: "%.2f%%", Configuration.defaultPayPalFeeRate * 100))
                     }
                     
                     Spacer()

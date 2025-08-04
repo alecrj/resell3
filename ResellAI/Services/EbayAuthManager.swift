@@ -426,11 +426,30 @@ class EbayAuthManager: NSObject, ObservableObject {
                 }
                 
                 do {
-                    let profile = try JSONDecoder().decode(EbayUserProfile.self, from: data)
-                    self?.userProfile = profile
-                    self?.saveUserProfile()
-                    print("✅ User profile loaded: \(profile.username)")
-                    completion(true)
+                    // Parse response and create profile with required fields
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        let userId = json["userId"] as? String ?? "unknown"
+                        let username = json["username"] as? String ?? json["userId"] as? String ?? "User"
+                        let email = json["email"] as? String
+                        let registrationDate = json["registrationDate"] as? String
+                        let registrationMarketplaceId = json["registrationMarketplaceId"] as? String ?? "EBAY_US"
+                        
+                        let profile = EbayUserProfile(
+                            userId: userId,
+                            username: username,
+                            email: email,
+                            registrationDate: registrationDate,
+                            registrationMarketplaceId: registrationMarketplaceId
+                        )
+                        
+                        self?.userProfile = profile
+                        self?.saveUserProfile()
+                        print("✅ User profile loaded: \(profile.username)")
+                        completion(true)
+                    } else {
+                        print("⚠️ Failed to parse user profile JSON")
+                        completion(true) // Don't fail the whole process for profile issues
+                    }
                 } catch {
                     print("⚠️ Failed to decode user profile: \(error)")
                     // Don't fail the whole process for profile issues
@@ -515,7 +534,9 @@ class EbayAuthManager: NSObject, ObservableObject {
         return EbayListingCapabilities(
             canList: canCreateListings(),
             maxPhotos: 12,
+            maxTitleLength: 80,
             supportedFormats: ["FixedPrice", "Auction"],
+            supportedCategories: Array(Configuration.ebayCategoryMappings.keys),
             sellerLevel: userProfile?.registrationMarketplaceId == "EBAY_US" ? "Standard" : "Basic"
         )
     }
