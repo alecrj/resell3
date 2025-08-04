@@ -2,195 +2,59 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Final Fixed ContentView with Correct AIService Reference
+//  Main app interface for the complete resell workflow
 //
 
 import SwiftUI
 import PhotosUI
 
 struct ContentView: View {
-    var body: some View {
-        BusinessTabView()
-            .environmentObject(InventoryManager())
-            .environmentObject(WorkingOpenAIService()) // Use explicit service name
-            .environmentObject(GoogleSheetsService())
-            .environmentObject(EbayListingService())
-    }
-}
-
-// MARK: - Business Header
-struct BusinessHeader: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("ResellAI")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundColor(.primary)
-                
-                Spacer()
-                
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(Configuration.isFullyConfigured ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    
-                    Text(Configuration.isFullyConfigured ? "Ready" : "Setup")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Configuration.isFullyConfigured ? .green : .orange)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill((Configuration.isFullyConfigured ? Color.green : Color.orange).opacity(0.1))
-                )
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 20)
-        }
-        .background(
-            Color(.systemBackground)
-                .ignoresSafeArea(edges: .top)
-        )
-        .overlay(
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundColor(Color(.separator))
-                .opacity(0.3),
-            alignment: .bottom
-        )
-    }
-}
-
-// MARK: - Business Tab View
-struct BusinessTabView: View {
-    var body: some View {
-        TabView {
-            BusinessAnalysisView()
-                .tabItem {
-                    Image(systemName: "viewfinder")
-                    Text("Analyze")
-                }
-            
-            DashboardView()
-                .tabItem {
-                    Image(systemName: "chart.bar.fill")
-                    Text("Dashboard")
-                }
-            
-            SmartInventoryListView()
-                .tabItem {
-                    Image(systemName: "list.bullet.rectangle.portrait")
-                    Text("Inventory")
-                }
-            
-            InventoryOrganizationView()
-                .tabItem {
-                    Image(systemName: "archivebox.fill")
-                    Text("Storage")
-                }
-            
-            AppSettingsView()
-                .tabItem {
-                    Image(systemName: "gearshape.fill")
-                    Text("Settings")
-                }
-        }
-        .accentColor(.accentColor)
-    }
-}
-
-// MARK: - Business Analysis View
-struct BusinessAnalysisView: View {
-    @EnvironmentObject var inventoryManager: InventoryManager
-    @EnvironmentObject var aiService: WorkingOpenAIService // Use explicit type
-    @EnvironmentObject var googleSheetsService: GoogleSheetsService
-    @EnvironmentObject var ebayListingService: EbayListingService
+    @StateObject private var appState = AppState()
+    @StateObject private var openAIService = OpenAIService()
+    @StateObject private var ebayService = EbayService()
     
-    @State private var capturedImages: [UIImage] = []
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var selectedImages: [UIImage] = []
+    @State private var showingPhotoPicker = false
     @State private var showingCamera = false
-    @State private var showingPhotoLibrary = false
-    @State private var analysisResult: AnalysisResult?
-    @State private var showingItemForm = false
-    @State private var showingDirectListing = false
-    @State private var showingBarcodeLookup = false
-    @State private var scannedBarcode: String?
-    @State private var showingAnalysisSheet = false
+    @State private var selectedPrice: Double = 0
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                BusinessHeader()
-                
-                if capturedImages.isEmpty {
-                    EmptyStateView()
-                } else {
-                    PhotoGridView(images: $capturedImages)
-                }
-                
-                BusinessActionButtons(
-                    hasPhotos: !capturedImages.isEmpty,
-                    isAnalyzing: aiService.isAnalyzing,
-                    isConfigured: Configuration.isFullyConfigured,
-                    onCamera: { showingCamera = true },
-                    onLibrary: { showingPhotoLibrary = true },
-                    onBarcode: { showingBarcodeLookup = true },
-                    onAnalyze: analyzePhotos,
-                    onReset: resetAll
-                )
-                
-                if let result = analysisResult {
-                    AnalysisResultCard(
-                        result: result,
-                        onSaveToInventory: { saveToInventory(result) },
-                        onListDirectly: { showingDirectListing = true }
-                    )
-                }
-                
-                Spacer(minLength: 100)
-            }
-        }
-        .background(Color(.systemGroupedBackground))
-        .sheet(isPresented: $showingCamera) {
-            CameraView { images in
-                capturedImages.append(contentsOf: images)
-            }
-        }
-        .sheet(isPresented: $showingPhotoLibrary) {
-            PhotoLibraryPickerView { images in
-                capturedImages.append(contentsOf: images)
-            }
-        }
-        .sheet(isPresented: $showingBarcodeLookup) {
-            BarcodeScannerView { barcode in
-                scannedBarcode = barcode
-                lookupBarcode(barcode)
-            }
-        }
-        .sheet(isPresented: $showingItemForm) {
-            if let result = analysisResult {
-                ItemFormView(
-                    analysis: result,
-                    onSave: { item in
-                        _ = inventoryManager.addItem(item)
-                        showingItemForm = false
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 20) {
+                    headerSection
+                    
+                    if !ebayService.isAuthenticated {
+                        ebayAuthSection
+                    } else {
+                        mainWorkflowSection
                     }
-                )
-            }
-        }
-        .sheet(isPresented: $showingDirectListing) {
-            if let result = analysisResult {
-                DirectListingView(
-                    analysis: result,
-                    images: capturedImages,
-                    onComplete: { success in
-                        showingDirectListing = false
-                        if success {
-                            resetAll()
-                        }
+                    
+                    if let analysis = appState.currentAnalysis {
+                        analysisResultsSection(analysis)
                     }
-                )
+                    
+                    if !appState.recentAnalyses.isEmpty {
+                        recentAnalysesSection
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("ResellAI")
+            .alert("Error", isPresented: .constant(appState.errorMessage != nil)) {
+                Button("OK") { appState.clearError() }
+            } message: {
+                Text(appState.errorMessage ?? "")
+            }
+            .sheet(isPresented: $showingPhotoPicker) {
+                photoPickerSheet
+            }
+            .sheet(isPresented: $showingCamera) {
+                CameraViewWrapper { image in
+                    selectedImages.append(image)
+                    showingCamera = false
+                }
             }
         }
         .onAppear {
@@ -198,497 +62,496 @@ struct BusinessAnalysisView: View {
         }
     }
     
-    private func analyzePhotos() {
-        guard !capturedImages.isEmpty else { return }
-        
-        aiService.analyzeItem(images: capturedImages) { result in
-            DispatchQueue.main.async {
-                self.analysisResult = result
-            }
-        }
-    }
+    // MARK: - Header Section
     
-    private func lookupBarcode(_ barcode: String) {
-        print("Looking up barcode: \(barcode)")
-    }
-    
-    private func saveToInventory(_ result: AnalysisResult) {
-        // Use the simplified constructor
-        let item = InventoryItem(from: result, notes: "Added from photo analysis")
-        _ = inventoryManager.addItem(item)
-        showingItemForm = true
-    }
-    
-    private func resetAll() {
-        capturedImages.removeAll()
-        analysisResult = nil
-        scannedBarcode = nil
-    }
-}
-
-// MARK: - Direct Listing View (Complete Implementation)
-struct DirectListingView: View {
-    let analysis: AnalysisResult
-    let images: [UIImage]
-    let onComplete: (Bool) -> Void
-    
-    @EnvironmentObject var ebayListingService: EbayListingService
-    @State private var isListing = false
-    @State private var listingProgress = 0.0
-    @State private var currentStep = ""
-    @State private var error: String?
-    
-    var body: some View {
-        NavigationView {
-            VStack(spacing: 24) {
-                if isListing {
-                    listingProgressView
-                } else if let error = error {
-                    errorView(error)
-                } else {
-                    listingPreview
-                }
-            }
-            .padding()
-            .navigationTitle("List on eBay")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { onComplete(false) }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("List Now") { startListing() }
-                        .disabled(isListing)
-                }
-            }
-        }
-    }
-    
-    private var listingPreview: some View {
-        VStack(spacing: 20) {
-            Text("Ready to List")
-                .font(.title2)
-                .fontWeight(.bold)
+    private var headerSection: some View {
+        VStack(spacing: 10) {
+            Text("Upload Photo → AI Analysis → eBay Listing")
+                .font(.headline)
+                .multilineTextAlignment(.center)
             
-            VStack(alignment: .leading, spacing: 12) {
+            if appState.isAnalyzing {
+                ProgressView("Analyzing item...")
+                    .progressViewStyle(CircularProgressViewStyle())
+            }
+        }
+        .padding()
+        .background(Color.blue.opacity(0.1))
+        .cornerRadius(12)
+    }
+    
+    // MARK: - eBay Authentication
+    
+    private var ebayAuthSection: some View {
+        VStack(spacing: 15) {
+            Text("Connect to eBay")
+                .font(.title2)
+                .fontWeight(.semibold)
+            
+            Text("Authenticate with eBay to search sold items and post listings automatically")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            
+            Button(action: authenticateWithEbay) {
                 HStack {
-                    Text("Product:")
-                        .fontWeight(.semibold)
-                    Spacer()
-                    Text(analysis.productName)
+                    Image(systemName: "link")
+                    Text("Connect eBay Account")
+                }
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding()
+                .background(Color.blue)
+                .cornerRadius(12)
+            }
+        }
+        .padding()
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(12)
+    }
+    
+    // MARK: - Main Workflow
+    
+    private var mainWorkflowSection: some View {
+        VStack(spacing: 20) {
+            // Photo Upload Section
+            VStack(spacing: 15) {
+                Text("1. Upload Photos")
+                    .font(.headline)
+                
+                if selectedImages.isEmpty {
+                    Button(action: { showingPhotoPicker = true }) {
+                        VStack(spacing: 10) {
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 40))
+                            Text("Take or Select Photos")
+                                .font(.headline)
+                        }
+                        .foregroundColor(.blue)
+                        .frame(height: 120)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, dash: [5]))
+                        )
+                    }
+                } else {
+                    photoPreviewSection
+                }
+                
+                HStack(spacing: 15) {
+                    Button("Camera") {
+                        showingCamera = true
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Button("Photo Library") {
+                        showingPhotoPicker = true
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    if !selectedImages.isEmpty {
+                        Button("Clear") {
+                            selectedImages.removeAll()
+                            selectedPhotos.removeAll()
+                        }
+                        .buttonStyle(.bordered)
+                        .foregroundColor(.red)
+                    }
+                }
+            }
+            
+            // Analysis Button
+            if !selectedImages.isEmpty && !appState.isAnalyzing {
+                Button(action: analyzeItem) {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                        Text("2. Analyze Item & Get eBay Comps")
+                    }
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .padding()
+                    .background(Color.green)
+                    .cornerRadius(12)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Photo Preview
+    
+    private var photoPreviewSection: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(Array(selectedImages.enumerated()), id: \.offset) { index, image in
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 80, height: 80)
+                        .cornerRadius(8)
+                        .clipped()
+                        .overlay(
+                            Button(action: { removeImage(at: index) }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.white)
+                                    .background(Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                            .offset(x: 8, y: -8),
+                            alignment: .topTrailing
+                        )
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+    
+    // MARK: - Analysis Results
+    
+    private func analysisResultsSection(_ analysis: ItemAnalysis) -> some View {
+        VStack(spacing: 20) {
+            // Item Details
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Analysis Results")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                
+                HStack {
+                    Text("Item:")
+                        .fontWeight(.medium)
+                    Text(analysis.title)
                 }
                 
                 HStack {
                     Text("Brand:")
-                        .fontWeight(.semibold)
-                    Spacer()
+                        .fontWeight(.medium)
                     Text(analysis.brand)
                 }
                 
                 HStack {
                     Text("Condition:")
-                        .fontWeight(.semibold)
-                    Spacer()
+                        .fontWeight(.medium)
                     Text(analysis.condition.rawValue)
                 }
                 
                 HStack {
-                    Text("Price:")
-                        .fontWeight(.semibold)
-                    Spacer()
-                    Text("$\(String(format: "%.2f", analysis.suggestedPrice))")
-                        .fontWeight(.bold)
-                        .foregroundColor(.green)
+                    Text("Confidence:")
+                        .fontWeight(.medium)
+                    Text("\(Int(analysis.confidence * 100))%")
+                        .foregroundColor(analysis.confidence > 0.8 ? .green : .orange)
                 }
             }
             .padding()
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.1))
             .cornerRadius(12)
             
-            Text("This will create a listing on your connected eBay account.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+            // Pricing Section
+            pricingSection(analysis)
+            
+            // eBay Comps
+            if !analysis.ebayComps.isEmpty {
+                ebayCompsSection(analysis.ebayComps)
+            }
+            
+            // Post to eBay Button
+            postToEbayButton(analysis)
         }
     }
     
-    private var listingProgressView: some View {
-        VStack(spacing: 20) {
-            ProgressView(value: listingProgress)
-                .progressViewStyle(LinearProgressViewStyle())
-            
-            Text(currentStep)
+    // MARK: - Pricing Section
+    
+    private func pricingSection(_ analysis: ItemAnalysis) -> some View {
+        VStack(spacing: 15) {
+            Text("3. Choose Your Price")
                 .font(.headline)
             
-            Text("Please wait...")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-    }
-    
-    private func errorView(_ errorMessage: String) -> some View {
-        VStack(spacing: 20) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 50))
-                .foregroundColor(.red)
-            
-            Text("Listing Failed")
-                .font(.title2)
-                .fontWeight(.bold)
-            
-            Text(errorMessage)
-                .font(.body)
-                .multilineTextAlignment(.center)
-            
-            Button("Try Again") {
-                error = nil
-                startListing()
-            }
-            .buttonStyle(.borderedProminent)
-        }
-    }
-    
-    private func startListing() {
-        isListing = true
-        error = nil
-        
-        let item = InventoryItem(from: analysis)
-        
-        Task {
-            await ebayListingService.createListing(
-                item: item,
-                analysisResult: analysis,
-                images: images
-            )
-            
-            await MainActor.run {
-                isListing = false
-                if let listingError = ebayListingService.error {
-                    error = listingError
-                } else if ebayListingService.listingResult?.success == true {
-                    onComplete(true)
-                } else {
-                    error = "Listing failed for unknown reason"
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Empty State View
-struct EmptyStateView: View {
-    var body: some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 16) {
-                Image(systemName: "camera.viewfinder")
-                    .font(.system(size: 64, weight: .light))
-                    .foregroundColor(.blue)
+            VStack(spacing: 10) {
+                pricingOption(
+                    strategy: .quickSale,
+                    price: analysis.quickSalePrice,
+                    isSelected: selectedPrice == analysis.quickSalePrice
+                )
                 
-                Text("Ready to Resell")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(.primary)
+                pricingOption(
+                    strategy: .competitive,
+                    price: analysis.suggestedPrice,
+                    isSelected: selectedPrice == analysis.suggestedPrice
+                )
                 
-                Text("Take photos of items and let AI handle the rest")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
+                pricingOption(
+                    strategy: .premium,
+                    price: analysis.premiumPrice,
+                    isSelected: selectedPrice == analysis.premiumPrice
+                )
             }
-            .padding(.vertical, 40)
         }
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
-        )
-        .padding(.horizontal, 20)
     }
-}
-
-// MARK: - Photo Grid View
-struct PhotoGridView: View {
-    @Binding var images: [UIImage]
     
-    var body: some View {
-        VStack(spacing: 16) {
+    private func pricingOption(strategy: PricingStrategy, price: Double, isSelected: Bool) -> some View {
+        Button(action: { selectedPrice = price }) {
             HStack {
-                Text("\(images.count) Photos")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.primary)
+                VStack(alignment: .leading) {
+                    Text(strategy.rawValue)
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    Text(strategy.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
                 
                 Spacer()
                 
-                Button("Clear All") {
-                    images.removeAll()
-                }
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.red)
+                Text("$\(price, specifier: "%.2f")")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(isSelected ? .white : .primary)
             }
+            .padding()
+            .background(isSelected ? Color.blue : Color.gray.opacity(0.1))
+            .cornerRadius(12)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    // MARK: - eBay Comps Section
+    
+    private func ebayCompsSection(_ comps: [EbayComp]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Recent eBay Sales (\(comps.count) found)")
+                .font(.headline)
             
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(images.indices, id: \.self) { index in
-                        ZStack(alignment: .topTrailing) {
-                            Image(uiImage: images[index])
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 120, height: 120)
-                                .clipped()
-                                .cornerRadius(12)
-                            
-                            Button {
-                                images.remove(at: index)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.white)
-                                    .background(Color.black.opacity(0.6))
-                                    .clipShape(Circle())
-                            }
-                            .offset(x: -4, y: 4)
+            LazyVStack(spacing: 8) {
+                ForEach(comps.prefix(5)) { comp in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(comp.title)
+                                .font(.subheadline)
+                                .lineLimit(2)
+                            Text(comp.condition)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(formatDate(comp.soldDate))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
+                        
+                        Spacer()
+                        
+                        Text("$\(comp.totalPrice, specifier: "%.2f")")
+                            .font(.headline)
+                            .fontWeight(.semibold)
                     }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(Color.gray.opacity(0.05))
+                    .cornerRadius(8)
                 }
-                .padding(.horizontal, 4)
             }
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.systemGray6))
-        )
-        .padding(.horizontal, 20)
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(12)
     }
-}
-
-// MARK: - Business Action Buttons
-struct BusinessActionButtons: View {
-    let hasPhotos: Bool
-    let isAnalyzing: Bool
-    let isConfigured: Bool
-    let onCamera: () -> Void
-    let onLibrary: () -> Void
-    let onBarcode: () -> Void
-    let onAnalyze: () -> Void
-    let onReset: () -> Void
     
-    var body: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 12) {
-                BusinessActionButton(
-                    icon: "camera.fill",
-                    title: "Camera",
-                    color: .blue,
-                    action: onCamera
-                )
-                
-                BusinessActionButton(
-                    icon: "photo.on.rectangle.angled",
-                    title: "Library",
-                    color: .green,
-                    action: onLibrary
-                )
-                
-                BusinessActionButton(
-                    icon: "barcode.viewfinder",
-                    title: "Barcode",
-                    color: .orange,
-                    action: onBarcode
-                )
-            }
-            
-            VStack(spacing: 12) {
-                Button(action: onAnalyze) {
-                    HStack(spacing: 8) {
-                        if isAnalyzing {
+    // MARK: - Post to eBay Button
+    
+    private func postToEbayButton(_ analysis: ItemAnalysis) -> some View {
+        VStack(spacing: 10) {
+            if selectedPrice == 0 {
+                Text("Select a price to continue")
+                    .foregroundColor(.secondary)
+            } else {
+                Button(action: { postToEbay(analysis) }) {
+                    HStack {
+                        if appState.isPostingToEbay {
                             ProgressView()
                                 .scaleEffect(0.8)
-                                .tint(.white)
                         } else {
-                            Image(systemName: "brain.head.profile")
-                                .font(.system(size: 18, weight: .semibold))
+                            Image(systemName: "square.and.arrow.up")
                         }
-                        
-                        Text(isAnalyzing ? "Analyzing..." : "Analyze Items")
-                            .font(.system(size: 18, weight: .bold))
+                        Text("4. Post to eBay - $\(selectedPrice, specifier: "%.2f")")
                     }
+                    .font(.headline)
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(hasPhotos && isConfigured ?
-                                Color.accentColor : Color.gray)
-                    )
+                    .padding()
+                    .background(appState.isPostingToEbay ? Color.gray : Color.blue)
+                    .cornerRadius(12)
                 }
-                .disabled(isAnalyzing || !isConfigured || !hasPhotos)
-                .buttonStyle(ScaleButtonStyle())
-                
-                if !isAnalyzing && hasPhotos {
-                    Button("Start Over", action: onReset)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .buttonStyle(ScaleButtonStyle())
+                .disabled(appState.isPostingToEbay)
+            }
+        }
+    }
+    
+    // MARK: - Recent Analyses
+    
+    private var recentAnalysesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Recent Analyses")
+                .font(.headline)
+            
+            LazyVStack(spacing: 8) {
+                ForEach(appState.recentAnalyses.prefix(3)) { analysis in
+                    HStack {
+                        Text(analysis.title)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                        
+                        Spacer()
+                        
+                        Text("$\(analysis.suggestedPrice, specifier: "%.2f")")
+                            .font(.headline)
+                            .fontWeight(.medium)
+                    }
+                    .padding()
+                    .background(Color.gray.opacity(0.05))
+                    .cornerRadius(8)
                 }
             }
         }
-        .padding(.horizontal, 20)
+        .padding()
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(12)
     }
-}
-
-// MARK: - Business Action Button
-struct BusinessActionButton: View {
-    let icon: String
-    let title: String
-    let color: Color
-    let action: () -> Void
     
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 24, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 14, weight: .bold))
-            }
-            .foregroundColor(color)
-            .frame(maxWidth: .infinity)
-            .frame(height: 80)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(color.opacity(0.1))
-            )
+    // MARK: - Actions
+    
+    private func authenticateWithEbay() {
+        guard let authURL = ebayService.startOAuthFlow() else {
+            appState.setError(.ebayAuthError("Failed to create auth URL"))
+            return
         }
-        .buttonStyle(ScaleButtonStyle())
-    }
-}
-
-// MARK: - Photo Library Picker View
-struct PhotoLibraryPickerView: UIViewControllerRepresentable {
-    let onImagesSelected: ([UIImage]) -> Void
-    @Environment(\.presentationMode) var presentationMode
-    
-    func makeUIViewController(context: Context) -> PHPickerViewController {
-        var config = PHPickerConfiguration()
-        config.filter = .images
-        config.selectionLimit = 8
         
-        let picker = PHPickerViewController(configuration: config)
+        UIApplication.shared.open(authURL)
+    }
+    
+    private func analyzeItem() {
+        guard !selectedImages.isEmpty else { return }
+        
+        Task {
+            appState.isAnalyzing = true
+            selectedPrice = 0
+            
+            do {
+                let analysis = try await openAIService.analyzeItem(photos: selectedImages)
+                appState.addAnalysis(analysis)
+            } catch {
+                appState.setError(error as? ResellAIError ?? .analysisError(error.localizedDescription))
+            }
+            
+            appState.isAnalyzing = false
+        }
+    }
+    
+    private func postToEbay(_ analysis: ItemAnalysis) {
+        guard selectedPrice > 0 else { return }
+        
+        Task {
+            appState.isPostingToEbay = true
+            
+            do {
+                let listing = EbayListing(from: analysis, price: selectedPrice)
+                let listingID = try await ebayService.postListing(listing)
+                
+                // Success - could show success message or navigate to listing
+                print("Successfully posted listing: \(listingID)")
+                
+            } catch {
+                appState.setError(error as? ResellAIError ?? .ebayListingError(error.localizedDescription))
+            }
+            
+            appState.isPostingToEbay = false
+        }
+    }
+    
+    private func removeImage(at index: Int) {
+        selectedImages.remove(at: index)
+        selectedPhotos.remove(at: index)
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+// MARK: - Photo Picker Extension
+
+extension ContentView {
+    private var photoPickerSheet: some View {
+        PhotosPicker(
+            selection: $selectedPhotos,
+            maxSelectionCount: Configuration.maxPhotos,
+            matching: .images
+        ) {
+            Text("Select Photos")
+        }
+        .onChange(of: selectedPhotos) { newPhotos in
+            loadSelectedPhotos(newPhotos)
+        }
+    }
+    
+    private func loadSelectedPhotos(_ photos: [PhotosPickerItem]) {
+        selectedImages.removeAll()
+        
+        for photo in photos {
+            photo.loadTransferable(type: Data.self) { result in
+                switch result {
+                case .success(let data):
+                    if let data = data, let image = UIImage(data: data) {
+                        DispatchQueue.main.async {
+                            selectedImages.append(image)
+                        }
+                    }
+                case .failure(let error):
+                    print("Error loading photo: \(error)")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Camera View Wrapper
+
+struct CameraViewWrapper: UIViewControllerRepresentable {
+    let onImageCaptured: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+    
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
         picker.delegate = context.coordinator
         return picker
     }
     
-    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
     
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
     
-    class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        let parent: PhotoLibraryPickerView
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraViewWrapper
         
-        init(_ parent: PhotoLibraryPickerView) {
+        init(_ parent: CameraViewWrapper) {
             self.parent = parent
         }
         
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            parent.presentationMode.wrappedValue.dismiss()
-            
-            let group = DispatchGroup()
-            var images: [UIImage] = []
-            
-            for result in results {
-                group.enter()
-                result.itemProvider.loadObject(ofClass: UIImage.self) { (object, error) in
-                    if let image = object as? UIImage {
-                        images.append(image)
-                    }
-                    group.leave()
-                }
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.onImageCaptured(image)
             }
-            
-            group.notify(queue: .main) {
-                self.parent.onImagesSelected(images)
-            }
+            parent.dismiss()
+        }
+        
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
         }
     }
 }
 
-// MARK: - Analysis Result Card
-struct AnalysisResultCard: View {
-    let result: AnalysisResult
-    let onSaveToInventory: () -> Void
-    let onListDirectly: () -> Void
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 12) {
-                Text("Analysis Complete")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.primary)
-                
-                VStack(spacing: 8) {
-                    Text(result.productName)
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.primary)
-                    
-                    Text("\(result.brand) • \(result.condition.rawValue)")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.secondary)
-                    
-                    Text("$\(String(format: "%.0f", result.suggestedPrice))")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(.green)
-                }
-            }
-            
-            HStack(spacing: 12) {
-                Button(action: onSaveToInventory) {
-                    HStack {
-                        Image(systemName: "plus.circle.fill")
-                        Text("Save to Inventory")
-                    }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.blue)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.blue.opacity(0.1))
-                    )
-                }
-                .buttonStyle(ScaleButtonStyle())
-                
-                Button(action: onListDirectly) {
-                    HStack {
-                        Image(systemName: "arrow.up.circle.fill")
-                        Text("List on eBay")
-                    }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.green)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.green.opacity(0.1))
-                    )
-                }
-                .buttonStyle(ScaleButtonStyle())
-            }
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
-        )
-        .padding(.horizontal, 20)
-    }
-}
-
-// MARK: - Preview
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView()
-    }
+#Preview {
+    ContentView()
 }
